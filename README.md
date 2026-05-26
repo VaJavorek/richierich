@@ -19,6 +19,16 @@ This version is a placeholder dashboard shell: it uses deterministic synthetic E
 
 From this repository folder:
 
+### Option A: venv (recommended)
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python -m pip install -r requirements.txt
+.\.venv\Scripts\python app.py
+```
+
+### Option B: conda (existing)
+
 ```powershell
 & "C:\Users\20260009\miniconda3\Scripts\conda.exe" run -n shadow python app.py
 ```
@@ -30,6 +40,13 @@ The app binds to `127.0.0.1` and starts on the first available port from `8050`.
 ```powershell
 & "C:\Users\20260009\miniconda3\Scripts\conda.exe" run -n shadow python -m py_compile app.py climate_data.py
 & "C:\Users\20260009\miniconda3\Scripts\conda.exe" run -n shadow python -c "import app; print('ok')"
+```
+
+Or with `venv`:
+
+```powershell
+.\.venv\Scripts\python -m py_compile app.py climate_data.py
+.\.venv\Scripts\python -c "import app; print('ok')"
 ```
 
 ## Future Real-Data Integration

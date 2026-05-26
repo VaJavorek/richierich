@@ -68,6 +68,16 @@ def card(title: str, subtitle: str, children, class_name: str = ""):
     )
 
 
+def frame(title: str, children, class_name: str = ""):
+    return html.Section(
+        [
+            html.Div(title, className="frame-title"),
+            html.Div(children, className="frame-body"),
+        ],
+        className=f"frame {class_name}".strip(),
+    )
+
+
 def slider_value(id_: str, label: str, value: float, minimum: float, maximum: float, step: float = 1):
     return html.Div(
         [
@@ -147,166 +157,215 @@ def make_layout():
             ),
             html.Main(
                 [
-                    card(
-                        "Main map",
-                        "Mean temperature heatmap across the placeholder Europe grid.",
-                        dcc.Graph(id="main-map", config=GRAPH_CONFIG, className="map-graph main-map-graph"),
-                        "main-map-card",
+                    frame(
+                        "Maps",
+                        html.Div(
+                            [
+                                card(
+                                    "Main map",
+                                    "Mean temperature heatmap across the placeholder Europe grid.",
+                                    dcc.Graph(id="main-map", config=GRAPH_CONFIG, className="map-graph main-map-graph"),
+                                ),
+                                html.Div(
+                                    [
+                                        card(
+                                            "Mosquito season",
+                                            "Projected tiger mosquito season length.",
+                                            dcc.Graph(id="mosquito-map", config=GRAPH_CONFIG, className="map-graph mini-map-graph"),
+                                            "mini-map-card",
+                                        ),
+                                        card(
+                                            "Heat risk",
+                                            "Composite risk from hot days and tropical nights.",
+                                            dcc.Graph(id="heat-risk-map", config=GRAPH_CONFIG, className="map-graph mini-map-graph"),
+                                            "mini-map-card",
+                                        ),
+                                        card(
+                                            "Dryness risk",
+                                            "Consecutive dry-day pressure for resort operations.",
+                                            dcc.Graph(id="dry-risk-map", config=GRAPH_CONFIG, className="map-graph mini-map-graph"),
+                                            "mini-map-card",
+                                        ),
+                                    ],
+                                    className="mini-map-stack",
+                                ),
+                            ],
+                            className="maps-frame-grid",
+                        ),
+                        "maps-frame",
                     ),
-                    html.Div(
-                        [
-                            card(
-                                "Mosquito season",
-                                "Projected tiger mosquito season length.",
-                                dcc.Graph(id="mosquito-map", config=GRAPH_CONFIG, className="map-graph mini-map-graph"),
-                                "mini-map-card",
-                            ),
-                            card(
-                                "Heat risk",
-                                "Composite risk from hot days and tropical nights.",
-                                dcc.Graph(id="heat-risk-map", config=GRAPH_CONFIG, className="map-graph mini-map-graph"),
-                                "mini-map-card",
-                            ),
-                            card(
-                                "Dryness risk",
-                                "Consecutive dry-day pressure for resort operations.",
-                                dcc.Graph(id="dry-risk-map", config=GRAPH_CONFIG, className="map-graph mini-map-graph"),
-                                "mini-map-card",
-                            ),
-                        ],
-                        className="mini-map-stack",
-                    ),
-                    card(
+                    frame(
                         "Custom ranking",
-                        "Weighted shortlist of climate-driven resort candidates.",
-                        html.Div(
-                            [
-                                html.Div(
-                                    [
-                                        slider_value("weight-temperature", "Temperature comfort", DEFAULT_WEIGHTS["temperature"], 0, 50),
-                                        slider_value("weight-mosquito", "Low mosquito burden", DEFAULT_WEIGHTS["mosquito"], 0, 50),
-                                        slider_value("weight-heat", "Low heat risk", DEFAULT_WEIGHTS["heat"], 0, 50),
-                                        slider_value("weight-dryness", "Low dryness risk", DEFAULT_WEIGHTS["dryness"], 0, 50),
-                                        slider_value("weight-nights", "Low tropical nights", DEFAULT_WEIGHTS["nights"], 0, 50),
-                                    ],
-                                    className="weight-grid",
-                                ),
-                                dcc.Graph(id="ranking-chart", config=GRAPH_CONFIG, className="ranking-graph"),
-                            ],
-                            className="ranking-content",
+                        card(
+                            "Custom ranking",
+                            "Weighted shortlist of climate-driven resort candidates.",
+                            html.Div(
+                                [
+                                    html.Div(
+                                        [
+                                            slider_value(
+                                                "weight-temperature",
+                                                "Temperature comfort",
+                                                DEFAULT_WEIGHTS["temperature"],
+                                                0,
+                                                50,
+                                            ),
+                                            slider_value("weight-mosquito", "Low mosquito burden", DEFAULT_WEIGHTS["mosquito"], 0, 50),
+                                            slider_value("weight-heat", "Low heat risk", DEFAULT_WEIGHTS["heat"], 0, 50),
+                                            slider_value("weight-dryness", "Low dryness risk", DEFAULT_WEIGHTS["dryness"], 0, 50),
+                                            slider_value("weight-nights", "Low tropical nights", DEFAULT_WEIGHTS["nights"], 0, 50),
+                                        ],
+                                        className="weight-grid",
+                                    ),
+                                    dcc.Graph(id="ranking-chart", config=GRAPH_CONFIG, className="ranking-graph"),
+                                ],
+                                className="ranking-content",
+                            ),
                         ),
-                        "ranking-card",
+                        "ranking-frame",
                     ),
-                    card(
-                        "Parallel coordinates",
-                        "Each line is one grid cell, normalized across climate variables.",
-                        dcc.Graph(id="parallel-chart", config=GRAPH_CONFIG, className="parallel-graph"),
-                        "parallel-card",
+                    frame(
+                        "Parallel coordinate chart",
+                        card(
+                            "Parallel coordinates",
+                            "Each line is one grid cell, normalized across climate variables.",
+                            dcc.Graph(id="parallel-chart", config=GRAPH_CONFIG, className="parallel-graph"),
+                        ),
+                        "parallel-frame",
                     ),
-                    card(
+                    frame(
                         "Optimal Area Finder",
-                        "Highlight places matching the investor's climate limits.",
-                        html.Div(
-                            [
-                                html.Div(
-                                    [
-                                        html.Div(
-                                            [
-                                                html.Label("Target year"),
-                                                dcc.Slider(
-                                                    id="target-year-filter",
-                                                    min=YEAR_MIN,
-                                                    max=YEAR_MAX,
-                                                    step=1,
-                                                    value=DEFAULT_FILTERS["target_year"],
-                                                    marks=year_marks(),
-                                                    tooltip={"placement": "bottom", "always_visible": False},
-                                                ),
-                                            ],
-                                            className="wide-control",
-                                        ),
-                                        html.Div(
-                                            [
-                                                html.Label("Target month"),
-                                                dcc.Dropdown(
-                                                    id="target-month-filter",
-                                                    options=[
-                                                        {"label": label, "value": month}
-                                                        for month, label in MONTH_LABELS.items()
-                                                    ],
-                                                    value=DEFAULT_FILTERS["target_month"],
-                                                    clearable=False,
-                                                ),
-                                            ],
-                                            className="small-control",
-                                        ),
-                                        html.Div(
-                                            [
-                                                html.Label("Comfort temperature"),
-                                                dcc.RangeSlider(
-                                                    id="temp-range-filter",
-                                                    min=15,
-                                                    max=35,
-                                                    step=0.5,
-                                                    value=[DEFAULT_FILTERS["temp_min"], DEFAULT_FILTERS["temp_max"]],
-                                                    tooltip={"placement": "bottom", "always_visible": False},
-                                                ),
-                                            ],
-                                            className="wide-control",
-                                        ),
-                                        slider_value("max-mosquito-filter", "Max mosquito days", DEFAULT_FILTERS["max_mosquito"], 0, 210, 5),
-                                        slider_value("max-hot-filter", "Max hot days", DEFAULT_FILTERS["max_hot_days"], 0, 31, 1),
-                                        slider_value("max-dry-filter", "Max dry days", DEFAULT_FILTERS["max_dry_days"], 0, 65, 1),
-                                        slider_value("max-tropical-filter", "Max tropical nights", DEFAULT_FILTERS["max_tropical_nights"], 0, 31, 1),
-                                        slider_value("max-change-filter", "Max temp change", DEFAULT_FILTERS["max_temp_change"], 0, 5, 0.1),
-                                    ],
-                                    className="finder-controls",
-                                ),
-                                dcc.Graph(id="optimal-map", config=GRAPH_CONFIG, className="map-graph optimal-map-graph"),
-                            ],
-                            className="finder-content",
+                        card(
+                            "Optimal Area Finder",
+                            "Highlight places matching the investor's climate limits.",
+                            html.Div(
+                                [
+                                    html.Div(
+                                        [
+                                            html.Div(
+                                                [
+                                                    html.Label("Target year"),
+                                                    dcc.Slider(
+                                                        id="target-year-filter",
+                                                        min=YEAR_MIN,
+                                                        max=YEAR_MAX,
+                                                        step=1,
+                                                        value=DEFAULT_FILTERS["target_year"],
+                                                        marks=year_marks(),
+                                                        tooltip={"placement": "bottom", "always_visible": False},
+                                                    ),
+                                                ],
+                                                className="wide-control",
+                                            ),
+                                            html.Div(
+                                                [
+                                                    html.Label("Target month"),
+                                                    dcc.Dropdown(
+                                                        id="target-month-filter",
+                                                        options=[
+                                                            {"label": label, "value": month}
+                                                            for month, label in MONTH_LABELS.items()
+                                                        ],
+                                                        value=DEFAULT_FILTERS["target_month"],
+                                                        clearable=False,
+                                                    ),
+                                                ],
+                                                className="small-control",
+                                            ),
+                                            html.Div(
+                                                [
+                                                    html.Label("Comfort temperature"),
+                                                    dcc.RangeSlider(
+                                                        id="temp-range-filter",
+                                                        min=15,
+                                                        max=35,
+                                                        step=0.5,
+                                                        value=[DEFAULT_FILTERS["temp_min"], DEFAULT_FILTERS["temp_max"]],
+                                                        tooltip={"placement": "bottom", "always_visible": False},
+                                                    ),
+                                                ],
+                                                className="wide-control",
+                                            ),
+                                            slider_value(
+                                                "max-mosquito-filter",
+                                                "Max mosquito days",
+                                                DEFAULT_FILTERS["max_mosquito"],
+                                                0,
+                                                210,
+                                                5,
+                                            ),
+                                            slider_value("max-hot-filter", "Max hot days", DEFAULT_FILTERS["max_hot_days"], 0, 31, 1),
+                                            slider_value("max-dry-filter", "Max dry days", DEFAULT_FILTERS["max_dry_days"], 0, 65, 1),
+                                            slider_value(
+                                                "max-tropical-filter",
+                                                "Max tropical nights",
+                                                DEFAULT_FILTERS["max_tropical_nights"],
+                                                0,
+                                                31,
+                                                1,
+                                            ),
+                                            slider_value(
+                                                "max-change-filter",
+                                                "Max temp change",
+                                                DEFAULT_FILTERS["max_temp_change"],
+                                                0,
+                                                5,
+                                                0.1,
+                                            ),
+                                        ],
+                                        className="finder-controls",
+                                    ),
+                                    dcc.Graph(id="optimal-map", config=GRAPH_CONFIG, className="map-graph optimal-map-graph"),
+                                ],
+                                className="finder-content",
+                            ),
+                            "finder-card",
                         ),
-                        "finder-card",
+                        "finder-frame",
                     ),
-                    card(
+                    frame(
                         "Correlation scout",
-                        "Compare any two variables and brush candidate clusters.",
-                        html.Div(
-                            [
-                                html.Div(
-                                    [
-                                        html.Div(
-                                            [
-                                                html.Label("X variable"),
-                                                dcc.Dropdown(
-                                                    id="scatter-x",
-                                                    options=variable_options(),
-                                                    value="mean_temp",
-                                                    clearable=False,
-                                                ),
-                                            ],
-                                            className="small-control",
-                                        ),
-                                        html.Div(
-                                            [
-                                                html.Label("Y variable"),
-                                                dcc.Dropdown(
-                                                    id="scatter-y",
-                                                    options=variable_options(),
-                                                    value="mosquito_days",
-                                                    clearable=False,
-                                                ),
-                                            ],
-                                            className="small-control",
-                                        ),
-                                    ],
-                                    className="scatter-controls",
-                                ),
-                                dcc.Graph(id="scatter-chart", config=GRAPH_CONFIG, className="scatter-graph"),
-                            ],
-                            className="scatter-content",
+                        card(
+                            "Correlation scout",
+                            "Compare any two variables and brush candidate clusters.",
+                            html.Div(
+                                [
+                                    html.Div(
+                                        [
+                                            html.Div(
+                                                [
+                                                    html.Label("X variable"),
+                                                    dcc.Dropdown(
+                                                        id="scatter-x",
+                                                        options=variable_options(),
+                                                        value="mean_temp",
+                                                        clearable=False,
+                                                    ),
+                                                ],
+                                                className="small-control",
+                                            ),
+                                            html.Div(
+                                                [
+                                                    html.Label("Y variable"),
+                                                    dcc.Dropdown(
+                                                        id="scatter-y",
+                                                        options=variable_options(),
+                                                        value="mosquito_days",
+                                                        clearable=False,
+                                                    ),
+                                                ],
+                                                className="small-control",
+                                            ),
+                                        ],
+                                        className="scatter-controls",
+                                    ),
+                                    dcc.Graph(id="scatter-chart", config=GRAPH_CONFIG, className="scatter-graph"),
+                                ],
+                                className="scatter-content",
+                            ),
+                            "scatter-card",
                         ),
-                        "scatter-card",
+                        "scatter-frame",
                     ),
                     html.Aside(
                         [
@@ -363,11 +422,23 @@ def map_figure(
     candidate_ids: set[str] | None = None,
     title_suffix: str = "",
     height: int | None = None,
+    auto_range: bool = False,
+    marker_opacity: float = 1.0,
 ) -> go.Figure:
     selected = set(selected_ids or [])
     meta = VARIABLES[variable]
     fig = go.Figure()
-    cmin, cmax = meta["range"]
+    if auto_range:
+        scale_series = df[variable]
+        if candidate_ids is not None:
+            scale_series = df.loc[df["cell_id"].isin(candidate_ids), variable]
+        cmin = float(scale_series.min())
+        cmax = float(scale_series.max())
+        if cmin == cmax:
+            cmin -= 1.0
+            cmax += 1.0
+    else:
+        cmin, cmax = meta["range"]
 
     if candidate_ids is None:
         fig.add_trace(
@@ -391,6 +462,7 @@ def map_figure(
                     if not compact
                     else None,
                 },
+                opacity=marker_opacity,
                 customdata=df[["cell_id", "area_name", variable]],
                 hovertemplate=(
                     "<b>%{customdata[1]}</b><br>"
@@ -435,6 +507,7 @@ def map_figure(
                     "line": {"width": 1.2, "color": "#fff7d6"},
                     "colorbar": {"title": meta["unit"], "len": 0.58, "thickness": 10},
                 },
+                opacity=marker_opacity,
                 customdata=candidates[["cell_id", "area_name", variable]],
                 hovertemplate=(
                     "<b>%{customdata[1]}</b><br>"
@@ -846,13 +919,21 @@ def render_dashboard(active_time, weights, filters, selected_ids, scatter_x, sca
     candidate_label = f"{len(candidates):,} matching cells | {MONTH_LABELS[int(filters['target_month'])]} {int(filters['target_year'])}"
 
     return (
-        map_figure(df, "mean_temp", selected_ids, title_suffix=time_label),
-        map_figure(df, "mosquito_days", selected_ids, compact=True, title_suffix=time_label),
-        map_figure(df, "heat_risk", selected_ids, compact=True, title_suffix=time_label),
-        map_figure(df, "dryness_risk", selected_ids, compact=True, title_suffix=time_label),
+        map_figure(df, "mean_temp", selected_ids, title_suffix=time_label, auto_range=True, marker_opacity=0.65),
+        map_figure(df, "mosquito_days", selected_ids, compact=True, title_suffix=time_label, marker_opacity=0.6),
+        map_figure(df, "heat_risk", selected_ids, compact=True, title_suffix=time_label, marker_opacity=0.6),
+        map_figure(df, "dryness_risk", selected_ids, compact=True, title_suffix=time_label, marker_opacity=0.6),
         parallel_figure(df, selected_ids),
         ranking_figure(df, weights, selected_ids),
-        map_figure(optimal_df, "mean_temp", selected_ids, candidate_ids=candidate_ids, title_suffix=candidate_label, height=360),
+        map_figure(
+            optimal_df,
+            "mean_temp",
+            selected_ids,
+            candidate_ids=candidate_ids,
+            title_suffix=candidate_label,
+            height=360,
+            auto_range=True,
+        ),
         scatter_figure(df, scatter_x, scatter_y, selected_ids, weights),
         selection_summary(df, selected_ids),
     )

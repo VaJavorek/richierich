@@ -31,7 +31,14 @@ VARIABLES = {
     "mean_temp": {
         "label": "Mean temperature",
         "unit": "deg C",
-        "colorscale": "RdYlBu_r",
+        "colorscale": [
+            [0.0, "#fde0dd"],
+            [0.2, "#fcbba1"],
+            [0.4, "#fc9272"],
+            [0.6, "#fb6a4a"],
+            [0.8, "#de2d26"],
+            [1.0, "#a50f15"],
+        ],
         "range": (-5, 36),
     },
     "mosquito_days": {
