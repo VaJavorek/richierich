@@ -2,7 +2,7 @@
 
 Investor-facing Dash/Plotly dashboard for screening future European holiday resort locations using climate-change indicators.
 
-This version is a placeholder dashboard shell: it uses deterministic synthetic Europe-grid values that mirror the Copernicus climate indicator variables, while keeping the callback and data-provider structure ready for real NetCDF integration from the sibling `../data/` folder.
+This version is a real-data dashboard preview: it reads Copernicus climate indicator NetCDF files from the sibling `../data/` folder and keeps a local ignored `.climate_cache/` of processed year/month slices for responsive interactions.
 
 ## Dashboard Contents
 
@@ -14,6 +14,17 @@ This version is a placeholder dashboard shell: it uses deterministic synthetic E
 - Parallel coordinates-style climate profile chart.
 - Scatterplot for variable-pair correlation scouting.
 - Shared selection state across maps, ranking, scatterplot, and parallel chart.
+- Large focus view for every chart, with focus-window selections linked back into the dashboard.
+
+## Data
+
+The app expects the Copernicus NetCDF files in `../data/`. The available files currently cover 1950-2100 on a regular Europe grid. If more than 20,000 valid grid cells are available for a slice, the data provider applies deterministic spatial sampling to keep Plotly responsive.
+
+Override the sampling limit before running:
+
+```powershell
+$env:CLIMATE_MAX_CELLS = "50000"
+```
 
 ## Run
 
@@ -49,6 +60,6 @@ Or with `venv`:
 .\.venv\Scripts\python -c "import app; print('ok')"
 ```
 
-## Future Real-Data Integration
+## Notes
 
-The source climate files currently live outside this repository in `../data/`. The next implementation step should add a preprocessing/cache layer using `xarray` plus `netCDF4` or `h5netcdf`, then replace the placeholder generator in `climate_data.py` without changing the dashboard layout or interaction model.
+The app fails loudly if the NetCDF dependencies or expected files are missing. It does not fall back to synthetic values.

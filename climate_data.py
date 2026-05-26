@@ -1,16 +1,31 @@
 from __future__ import annotations
 
+import math
+import os
 from functools import lru_cache
+from pathlib import Path
 from typing import Iterable
 
 import numpy as np
 import pandas as pd
 
+try:
+    import xarray as xr
+except ImportError as exc:  # pragma: no cover - exercised by runtime environment
+    xr = None
+    _XARRAY_IMPORT_ERROR = exc
+else:
+    _XARRAY_IMPORT_ERROR = None
 
-YEAR_MIN = 1940
+
+YEAR_MIN = 1950
 YEAR_MAX = 2100
 DEFAULT_YEAR = 2070
 DEFAULT_MONTH = 7
+DEFAULT_MAX_CELLS = 20_000
+
+DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+CACHE_DIR = Path(__file__).resolve().parent / ".climate_cache"
 
 MONTH_LABELS = {
     1: "Jan",
@@ -39,7 +54,7 @@ VARIABLES = {
             [0.8, "#de2d26"],
             [1.0, "#a50f15"],
         ],
-        "range": (-5, 36),
+        "range": (-10, 43),
     },
     "mosquito_days": {
         "label": "Mosquito season",
@@ -69,13 +84,13 @@ VARIABLES = {
         "label": "Daily maximum temp",
         "unit": "deg C",
         "colorscale": "OrRd",
-        "range": (0, 45),
+        "range": (-5, 53),
     },
     "daily_min_mean": {
         "label": "Daily minimum temp",
         "unit": "deg C",
         "colorscale": "Blues_r",
-        "range": (-12, 28),
+        "range": (-20, 36),
     },
     "heat_risk": {
         "label": "Heat risk",
@@ -93,7 +108,7 @@ VARIABLES = {
         "label": "Temperature change",
         "unit": "deg C vs 2020",
         "colorscale": "PuOr",
-        "range": (-2, 5),
+        "range": (-2, 10),
     },
 }
 
@@ -130,6 +145,58 @@ DEFAULT_FILTERS = {
     "max_temp_change": 2.6,
 }
 
+EUROPE_EXTENT = {
+    "lat_min": 34.0,
+    "lat_max": 65.0,
+    "lon_min": -13.0,
+    "lon_max": 38.0,
+}
+
+SOURCE_SPECS = {
+    "mean_temp": {
+        "filename": "01_mean_temperature-projections-monthly-rcp_8_5-cclm4_8_17-mpi_esm_lr-r1i1p1-grid-v2.0.nc",
+        "var": "mean_temperature",
+        "frequency": "monthly",
+        "temperature": True,
+    },
+    "tropical_nights": {
+        "filename": "05_tropical_nights-projections-monthly-rcp_8_5-cclm4_8_17-mpi_esm_lr-r1i1p1-grid-v2.0.nc",
+        "var": "tropical_nights",
+        "frequency": "monthly",
+        "temperature": False,
+    },
+    "hot_days": {
+        "filename": "06_hot_days-projections-monthly-30deg-rcp_8_5-cclm4_8_17-mpi_esm_lr-r1i1p1-grid-v2.0.nc",
+        "var": "hot_days",
+        "frequency": "monthly",
+        "temperature": False,
+    },
+    "dry_days": {
+        "filename": "18_consecutive_dry_days-projections-monthly-rcp_8_5-cclm4_8_17-mpi_esm_lr-r1i1p1-grid-v2.0.nc",
+        "var": "consecutive_dry_days",
+        "frequency": "monthly",
+        "temperature": False,
+    },
+    "daily_max_mean": {
+        "filename": "l1_daily_maximum_temperature-projections-monthly-mean-rcp_8_5-cclm4_8_17-mpi_esm_lr-r1i1p1-grid-v2.0.nc",
+        "var": "daily_maximum_temperature",
+        "frequency": "monthly",
+        "temperature": True,
+    },
+    "daily_min_mean": {
+        "filename": "l2_daily_minimum_temperature-projections-monthly-mean-rcp_8_5-cclm4_8_17-mpi_esm_lr-r1i1p1-grid-v2.0.nc",
+        "var": "daily_minimum_temperature",
+        "frequency": "monthly",
+        "temperature": True,
+    },
+    "mosquito_days": {
+        "filename": "l3_tiger_mosquito_season_length-projections-yearly-rcp_8_5-cclm4_8_17-mpi_esm_lr-r1i1p1-grid-v2.0.nc",
+        "var": "tiger_mosquito_season_length",
+        "frequency": "yearly",
+        "temperature": False,
+    },
+}
+
 
 def variable_options() -> list[dict[str, str]]:
     return [{"label": VARIABLES[key]["label"], "value": key} for key in ANALYSIS_VARIABLES]
@@ -140,145 +207,58 @@ def month_marks() -> dict[int, str]:
 
 
 def year_marks() -> dict[int, str]:
-    return {year: str(year) for year in [1940, 1980, 2020, 2060, 2100]}
+    return {year: str(year) for year in [1950, 1980, 2020, 2060, 2100]}
 
 
 @lru_cache(maxsize=1)
 def base_grid() -> pd.DataFrame:
-    rows = []
-    index = 1
-    for lat in np.arange(35.0, 64.1, 2.0):
-        for lon in np.arange(-11.0, 36.1, 2.0):
-            if _outside_placeholder_europe(lat, lon):
-                continue
-            rows.append(
-                {
-                    "cell_id": f"EU-{index:03d}",
-                    "lat": round(float(lat), 3),
-                    "lon": round(float(lon), 3),
-                    "area_name": _area_name(lat, lon),
-                }
-            )
-            index += 1
-    return pd.DataFrame(rows)
-
-
-def _outside_placeholder_europe(lat: float, lon: float) -> bool:
-    if lat < 36 and lon < -5:
-        return True
-    if lat < 38 and lon > 24:
-        return True
-    if lat > 60 and lon < -6:
-        return True
-    if lat > 62 and lon > 25:
-        return True
-    if lon > 32 and lat > 55:
-        return True
-    return False
-
-
-def _area_name(lat: float, lon: float) -> str:
-    if lat < 40 and lon < -2:
-        return "Atlantic Iberia"
-    if lat < 42 and lon < 5:
-        return "Spanish Mediterranean"
-    if lat < 43 and lon < 13:
-        return "Western Mediterranean"
-    if lat < 43:
-        return "Adriatic and Aegean"
-    if lat < 47 and lon < 5:
-        return "Southern France"
-    if lat < 48 and lon < 16:
-        return "Alpine Lakes"
-    if lat < 49:
-        return "Danube Coast"
-    if lat < 53 and lon < 2:
-        return "Channel and Atlantic"
-    if lat < 54 and lon < 15:
-        return "Central Europe"
-    if lat < 56:
-        return "Baltic South"
-    if lat < 60 and lon < 10:
-        return "North Sea"
-    if lat < 60:
-        return "Baltic North"
-    return "Nordic Gateway"
+    source = _load_slice("mean_temp", DEFAULT_YEAR, DEFAULT_MONTH)
+    return _frame_from_array(source["lat"], source["lon"], np.isfinite(source["values"]))
 
 
 @lru_cache(maxsize=512)
 def climate_slice(year: int, month: int) -> pd.DataFrame:
     year = int(year)
     month = int(month)
-    grid = base_grid().copy()
-    values = _compute_climate_values(grid["lat"].to_numpy(), grid["lon"].to_numpy(), year, month)
-    base_values = _compute_climate_values(grid["lat"].to_numpy(), grid["lon"].to_numpy(), 2020, month)
+    _validate_time(year, month)
 
-    for key, series in values.items():
-        grid[key] = series
+    max_cells = _max_cells()
+    cache_file = _cache_path(year, month, max_cells)
+    if cache_file.exists():
+        return pd.read_parquet(cache_file)
 
-    grid["temp_change"] = grid["mean_temp"] - base_values["mean_temp"]
+    mean = _load_slice("mean_temp", year, month)
+    base = _load_slice("mean_temp", min(max(2020, YEAR_MIN), YEAR_MAX), month)
+    valid_mask = _valid_mask(mean["lat"], mean["lon"], mean["values"])
+    sampled_mask = _sample_mask(valid_mask, max_cells)
+    grid = _frame_from_array(mean["lat"], mean["lon"], sampled_mask)
+
+    for key in [
+        "mean_temp",
+        "daily_max_mean",
+        "daily_min_mean",
+        "hot_days",
+        "tropical_nights",
+        "dry_days",
+        "mosquito_days",
+    ]:
+        loaded = _load_slice(key, year, month)
+        grid[key] = loaded["values"][sampled_mask]
+
+    grid["temp_change"] = mean["values"][sampled_mask] - base["values"][sampled_mask]
+    grid["heat_risk"] = _heat_risk(grid)
+    grid["dryness_risk"] = _dryness_risk(grid)
     grid["year"] = year
     grid["month"] = month
     grid["season_label"] = f"{MONTH_LABELS[month]} {year}"
 
     numeric_columns = ANALYSIS_VARIABLES + ["lat", "lon"]
     grid[numeric_columns] = grid[numeric_columns].round(2)
+    grid = grid.dropna(subset=ANALYSIS_VARIABLES).reset_index(drop=True)
+
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    grid.to_parquet(cache_file, index=False)
     return grid
-
-
-def _compute_climate_values(lat: np.ndarray, lon: np.ndarray, year: int, month: int) -> dict[str, np.ndarray]:
-    seasonal = np.cos(2 * np.pi * (month - 7) / 12)
-    shoulder = np.cos(2 * np.pi * (month - 8) / 12)
-    future_years = max(year - 2020, 0)
-    warming = 0.020 * (year - 2020) + 0.00035 * future_years**2
-    mediterranean = np.clip((47 - lat) / 12, 0, 1)
-    continental = np.clip((lon - 8) / 22, 0, 1)
-    oceanic = np.clip((4 - np.abs(lon + 2)) / 8, 0, 1)
-    terrain = 0.55 * np.sin(lat * 0.72) + 0.45 * np.cos(lon * 0.41)
-
-    base_temp = 14.4 - 0.46 * (lat - 45) + 0.045 * lon + 0.6 * np.sin((lon + 4) * 0.23)
-    mean_temp = (
-        base_temp
-        + 10.4 * seasonal
-        + warming * (1 + 0.22 * mediterranean + 0.08 * continental)
-        + 0.65 * terrain
-        - 1.2 * oceanic * seasonal
-    )
-
-    daily_max_mean = mean_temp + 5.0 + 2.2 * seasonal + 1.2 * mediterranean + 0.8 * continental
-    daily_min_mean = mean_temp - 5.2 + 0.9 * shoulder + 0.8 * oceanic
-    hot_days = np.clip((mean_temp - 22.5) * 2.1 + (daily_max_mean - 30.0) * 1.35, 0, 31)
-    tropical_nights = np.clip((daily_min_mean - 18.4) * 3.15 + mediterranean * 3.2, 0, 31)
-
-    dry_base = 6.5 + mediterranean * 14 + continental * 5 - np.clip((lat - 54) / 12, 0, 1) * 4
-    dry_days = np.clip(dry_base + (seasonal + 1) * 4.4 + warming * 1.0 + terrain * 1.4, 1, 65)
-
-    wetland = 28 * np.exp(-(((lat - 45.0) / 6.0) ** 2 + ((lon - 14.0) / 8.0) ** 2))
-    mild_winter_bonus = np.clip(daily_min_mean + 2, 0, 18) * 2.2
-    mosquito_days = np.clip(
-        32
-        + (base_temp + warming - 9.5) * 7.1
-        + wetland
-        + mild_winter_bonus
-        - dry_days * 0.42,
-        0,
-        240,
-    )
-
-    heat_risk = np.clip(hot_days * 2.5 + tropical_nights * 1.55 + np.clip(daily_max_mean - 33, 0, None) * 4.0, 0, 100)
-    dryness_risk = np.clip(dry_days * 1.55 + np.clip(mean_temp - 26, 0, None) * 4.2, 0, 100)
-
-    return {
-        "mean_temp": mean_temp,
-        "mosquito_days": mosquito_days,
-        "hot_days": hot_days,
-        "dry_days": dry_days,
-        "tropical_nights": tropical_nights,
-        "daily_max_mean": daily_max_mean,
-        "daily_min_mean": daily_min_mean,
-        "heat_risk": heat_risk,
-        "dryness_risk": dryness_risk,
-    }
 
 
 def selected_subset(df: pd.DataFrame, selected_ids: Iterable[str] | None) -> pd.DataFrame:
@@ -338,3 +318,173 @@ def normalize_for_parallel(df: pd.DataFrame, variables: list[str]) -> pd.DataFra
         else:
             normalized[variable] = ((normalized[variable] - low) / (high - low)).clip(0, 1)
     return normalized
+
+
+def _validate_time(year: int, month: int) -> None:
+    if year < YEAR_MIN or year > YEAR_MAX:
+        raise ValueError(f"Year {year} is outside available Copernicus range {YEAR_MIN}-{YEAR_MAX}.")
+    if month not in MONTH_LABELS:
+        raise ValueError(f"Month {month} is outside range 1-12.")
+
+
+def _max_cells() -> int:
+    raw = os.environ.get("CLIMATE_MAX_CELLS", str(DEFAULT_MAX_CELLS))
+    try:
+        return max(1, int(raw))
+    except ValueError as exc:
+        raise ValueError("CLIMATE_MAX_CELLS must be an integer.") from exc
+
+
+def _cache_path(year: int, month: int, max_cells: int) -> Path:
+    return CACHE_DIR / f"copernicus_v1_y{year}_m{month:02d}_n{max_cells}.parquet"
+
+
+def _dataset_path(key: str) -> Path:
+    path = DATA_DIR / SOURCE_SPECS[key]["filename"]
+    if not path.exists():
+        raise FileNotFoundError(f"Missing Copernicus source file: {path}")
+    return path
+
+
+@lru_cache(maxsize=len(SOURCE_SPECS))
+def _open_dataset(key: str):
+    if xr is None:
+        raise RuntimeError(
+            "Real Copernicus data requires xarray plus h5netcdf/netCDF4 dependencies."
+        ) from _XARRAY_IMPORT_ERROR
+
+    path = _dataset_path(key)
+    try:
+        return xr.open_dataset(path, engine="h5netcdf", decode_times=True, chunks=None)
+    except PermissionError as exc:
+        raise PermissionError(
+            f"Cannot read {path}. If this is running inside the Codex sandbox, run the app normally "
+            "from the user session or make sure the OneDrive file is locally available."
+        ) from exc
+
+
+@lru_cache(maxsize=1024)
+def _load_slice(key: str, year: int, month: int) -> dict[str, np.ndarray]:
+    spec = SOURCE_SPECS[key]
+    ds = _open_dataset(key)
+    time_index = _time_index(key, year, month if spec["frequency"] == "monthly" else None)
+    da = ds[spec["var"]].isel(time=time_index)
+    values = da.values.astype(float)
+    if spec["temperature"]:
+        values = _to_celsius(values, da.attrs.get("units", ""))
+    return {
+        "values": values,
+        "lat": ds["lat"].values.astype(float),
+        "lon": ds["lon"].values.astype(float),
+    }
+
+
+@lru_cache(maxsize=512)
+def _time_index(key: str, year: int, month: int | None) -> int:
+    ds = _open_dataset(key)
+    years = []
+    months = []
+    for value in ds["time"].values:
+        years.append(int(getattr(value, "year", str(value)[:4])))
+        months.append(int(getattr(value, "month", 1 if month is None else str(value)[5:7])))
+
+    for index, (candidate_year, candidate_month) in enumerate(zip(years, months)):
+        if candidate_year == year and (month is None or candidate_month == month):
+            return index
+    if month is None:
+        raise ValueError(f"Year {year} is not available in {Path(ds.encoding.get('source', 'dataset')).name}.")
+    raise ValueError(
+        f"Year/month {year}-{month:02d} is not available in {Path(ds.encoding.get('source', 'dataset')).name}."
+    )
+
+
+def _to_celsius(values: np.ndarray, units: str) -> np.ndarray:
+    if units.strip().lower() in {"k", "kelvin"}:
+        return values - 273.15
+    return values
+
+
+def _valid_mask(lat: np.ndarray, lon: np.ndarray, values: np.ndarray) -> np.ndarray:
+    lon_grid, lat_grid = np.meshgrid(lon, lat)
+    return (
+        np.isfinite(values)
+        & (lat_grid >= EUROPE_EXTENT["lat_min"])
+        & (lat_grid <= EUROPE_EXTENT["lat_max"])
+        & (lon_grid >= EUROPE_EXTENT["lon_min"])
+        & (lon_grid <= EUROPE_EXTENT["lon_max"])
+    )
+
+
+def _sample_mask(valid_mask: np.ndarray, max_cells: int) -> np.ndarray:
+    valid_count = int(valid_mask.sum())
+    if valid_count <= max_cells:
+        return valid_mask
+    stride = max(1, int(math.ceil(math.sqrt(valid_count / max_cells))))
+    sampled = np.zeros_like(valid_mask, dtype=bool)
+    sampled[::stride, ::stride] = True
+    sampled &= valid_mask
+    while int(sampled.sum()) > max_cells:
+        stride += 1
+        sampled = np.zeros_like(valid_mask, dtype=bool)
+        sampled[::stride, ::stride] = True
+        sampled &= valid_mask
+    return sampled
+
+
+def _frame_from_array(lat: np.ndarray, lon: np.ndarray, mask: np.ndarray) -> pd.DataFrame:
+    lat_grid, lon_grid = np.meshgrid(lat, lon, indexing="ij")
+    rows = pd.DataFrame(
+        {
+            "lat": lat_grid[mask],
+            "lon": lon_grid[mask],
+        }
+    )
+    rows["cell_id"] = [f"EU-{index:05d}" for index in range(1, len(rows) + 1)]
+    rows["area_name"] = [_area_name(lat_value, lon_value) for lat_value, lon_value in zip(rows["lat"], rows["lon"])]
+    return rows[["cell_id", "lat", "lon", "area_name"]]
+
+
+def _area_name(lat: float, lon: float) -> str:
+    if lat < 40 and lon < -2:
+        return "Atlantic Iberia"
+    if lat < 42 and lon < 5:
+        return "Spanish Mediterranean"
+    if lat < 43 and lon < 13:
+        return "Western Mediterranean"
+    if lat < 43:
+        return "Adriatic and Aegean"
+    if lat < 47 and lon < 5:
+        return "Southern France"
+    if lat < 48 and lon < 16:
+        return "Alpine Lakes"
+    if lat < 49:
+        return "Danube Coast"
+    if lat < 53 and lon < 2:
+        return "Channel and Atlantic"
+    if lat < 54 and lon < 15:
+        return "Central Europe"
+    if lat < 56:
+        return "Baltic South"
+    if lat < 60 and lon < 10:
+        return "North Sea"
+    if lat < 60:
+        return "Baltic North"
+    return "Nordic Gateway"
+
+
+def _heat_risk(df: pd.DataFrame) -> np.ndarray:
+    return np.clip(
+        df["hot_days"] * 2.4
+        + df["tropical_nights"] * 1.6
+        + np.clip(df["daily_max_mean"] - 33.0, 0, None) * 4.5,
+        0,
+        100,
+    )
+
+
+def _dryness_risk(df: pd.DataFrame) -> np.ndarray:
+    return np.clip(
+        df["dry_days"] * 2.0 + np.clip(df["mean_temp"] - 26.0, 0, None) * 4.0,
+        0,
+        100,
+    )

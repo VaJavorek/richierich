@@ -186,7 +186,7 @@ def make_layout():
                             [
                                 card(
                                     "Main map",
-                                    "Mean temperature heatmap across the placeholder Europe grid.",
+                                    "Mean temperature heatmap across the Copernicus Europe grid.",
                                     dcc.Graph(id="main-map", config=GRAPH_CONFIG, className="map-graph main-map-graph"),
                                     focus_key="main-map",
                                 ),
