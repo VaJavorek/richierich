@@ -318,7 +318,8 @@ h2 {
 
 .ranking-content,
 .scatter-content,
-.finder-content {
+.finder-content,
+.parallel-content {
   display: grid;
   gap: 12px;
 }
@@ -361,11 +362,25 @@ h2 {
   padding: 12px;
 }
 
+.parallel-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(180px, 1fr);
+  gap: 10px 14px;
+  border: 1px solid rgba(23, 33, 43, 0.09);
+  border-radius: var(--radius);
+  background: rgba(248, 234, 210, 0.42);
+  padding: 10px 12px;
+}
+
 .wide-control {
   grid-column: 1 / -1;
 }
 
 .small-control {
+  min-width: 0;
+}
+
+.parallel-year-control {
   min-width: 0;
 }
 
@@ -498,6 +513,7 @@ h2 {
   .hero-control-grid,
   .weight-grid,
   .finder-controls,
+  .parallel-controls,
   .scatter-controls,
   .selection-panel {
     grid-template-columns: 1fr;

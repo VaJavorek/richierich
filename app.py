@@ -5,6 +5,7 @@ import socket
 from typing import Any
 
 import numpy as np
+import pandas as pd
 import plotly.graph_objects as go
 from dash import Dash, Input, Output, State, ctx, dcc, html
 
@@ -20,7 +21,6 @@ from climate_data import (
     YEAR_MIN,
     climate_slice,
     month_marks,
-    normalize_for_parallel,
     optimal_candidates,
     score_candidates,
     variable_options,
@@ -40,16 +40,34 @@ GRAPH_CONFIG = {
     "modeBarButtonsToRemove": ["autoScale2d", "toggleSpikelines"],
 }
 
-PARALLEL_VARIABLES = [
-    "mean_temp",
-    "daily_max_mean",
-    "daily_min_mean",
-    "hot_days",
-    "tropical_nights",
-    "mosquito_days",
-    "dry_days",
-    "heat_risk",
-    "dryness_risk",
+PARALLEL_TEMP_YEARS = [2026, 2036, 2056, 2076]
+PARALLEL_BASE_YEAR = 2026
+PARALLEL_AXIS_SPECS = [
+    {"key": "temp_2026", "label": "Mean temp 2026", "unit": "deg C", "group": "temp"},
+    {"key": "temp_2036", "label": "Mean temp 2036", "unit": "deg C", "group": "temp"},
+    {"key": "temp_2056", "label": "Mean temp 2056", "unit": "deg C", "group": "temp"},
+    {"key": "temp_2076", "label": "Mean temp 2076", "unit": "deg C", "group": "temp"},
+    {"key": "hot_2026", "label": "Hot days 2026", "unit": "days", "group": "days"},
+    {"key": "hot_target", "label": "Hot days target", "unit": "days", "group": "days"},
+    {"key": "dry_2026", "label": "Dry days 2026", "unit": "days", "group": "days"},
+    {"key": "dry_target", "label": "Dry days target", "unit": "days", "group": "days"},
+    {"key": "mosquito_2026", "label": "Mosquito 2026", "unit": "days", "group": "days"},
+    {"key": "mosquito_target", "label": "Mosquito target", "unit": "days", "group": "days"},
+]
+
+AREA_LINE_COLORS = [
+    "#21475c",
+    "#be7f42",
+    "#4f8f6b",
+    "#9c5c34",
+    "#6c5ca8",
+    "#2f8f9d",
+    "#b85f6a",
+    "#748047",
+    "#80643e",
+    "#526a84",
+    "#8a6a96",
+    "#5d7f52",
 ]
 
 FOCUS_CHARTS = {
@@ -125,6 +143,7 @@ def make_layout():
             dcc.Store(id="ranking-weights-store", data=DEFAULT_WEIGHTS),
             dcc.Store(id="optimal-filter-store", data=DEFAULT_FILTERS),
             dcc.Store(id="focused-chart-store", data=None),
+            dcc.Store(id="parallel-area-map-store", data={}),
             html.Header(
                 [
                     html.Div(
@@ -256,8 +275,48 @@ def make_layout():
                         "Parallel coordinate chart",
                         card(
                             "Parallel coordinates",
-                            "Each line is one grid cell, normalized across climate variables.",
-                            dcc.Graph(id="parallel-chart", config=GRAPH_CONFIG, className="parallel-graph"),
+                            "Each line is one geographical area cluster across climate milestones.",
+                            html.Div(
+                                [
+                                    html.Div(
+                                        [
+                                            html.Div(
+                                                [
+                                                    html.Label("Target year"),
+                                                    dcc.Slider(
+                                                        id="parallel-target-year",
+                                                        min=YEAR_MIN,
+                                                        max=YEAR_MAX,
+                                                        step=1,
+                                                        value=DEFAULT_YEAR,
+                                                        marks=year_marks(),
+                                                        tooltip={"placement": "bottom", "always_visible": False},
+                                                    ),
+                                                ],
+                                                className="parallel-year-control",
+                                            ),
+                                            html.Div(
+                                                [
+                                                    html.Label("Target month"),
+                                                    dcc.Dropdown(
+                                                        id="parallel-target-month",
+                                                        options=[
+                                                            {"label": label, "value": month}
+                                                            for month, label in MONTH_LABELS.items()
+                                                        ],
+                                                        value=DEFAULT_MONTH,
+                                                        clearable=False,
+                                                    ),
+                                                ],
+                                                className="small-control",
+                                            ),
+                                        ],
+                                        className="parallel-controls",
+                                    ),
+                                    dcc.Graph(id="parallel-chart", config=GRAPH_CONFIG, className="parallel-graph"),
+                                ],
+                                className="parallel-content",
+                            ),
                             focus_key="parallel-chart",
                         ),
                         "parallel-frame",
@@ -652,49 +711,183 @@ def ranking_figure(df, weights, selected_ids: list[str] | None) -> go.Figure:
     return fig
 
 
-def parallel_figure(df, selected_ids: list[str] | None) -> go.Figure:
+def build_parallel_profile(target_year: int, month: int):
+    target_year = int(target_year)
+    month = int(month)
+    base_df = climate_slice(PARALLEL_BASE_YEAR, month)
+    target_df = climate_slice(target_year, month)
+    source_by_year = {
+        year: climate_slice(year, month)
+        for year in sorted(set(PARALLEL_TEMP_YEARS + [PARALLEL_BASE_YEAR, target_year]))
+    }
+    area_map = {
+        area_name: area_df["cell_id"].tolist()
+        for area_name, area_df in target_df.groupby("area_name", sort=True)
+    }
+
+    rows = []
+    for area_name, cell_ids in area_map.items():
+        row = {
+            "area_key": area_name,
+            "area_name": area_name,
+            "cell_count": len(cell_ids),
+        }
+        for year in PARALLEL_TEMP_YEARS:
+            year_df = source_by_year[year]
+            row[f"temp_{year}"] = float(year_df.loc[year_df["area_name"] == area_name, "mean_temp"].mean())
+
+        base_area = base_df[base_df["area_name"] == area_name]
+        target_area = target_df[target_df["area_name"] == area_name]
+        row["hot_2026"] = float(base_area["hot_days"].mean())
+        row["hot_target"] = float(target_area["hot_days"].mean())
+        row["dry_2026"] = float(base_area["dry_days"].mean())
+        row["dry_target"] = float(target_area["dry_days"].mean())
+        row["mosquito_2026"] = float(base_area["mosquito_days"].mean())
+        row["mosquito_target"] = float(target_area["mosquito_days"].mean())
+        rows.append(row)
+
+    profile = pd.DataFrame(rows).sort_values("area_name").reset_index(drop=True)
+    return profile, area_map
+
+
+def _normalize_parallel_value(value: float, value_range: tuple[float, float]) -> float:
+    low, high = value_range
+    if high <= low:
+        return 0.5
+    return float(np.clip((value - low) / (high - low), 0, 1))
+
+
+def _parallel_ranges(profile) -> tuple[tuple[float, float], tuple[float, float]]:
+    temp_keys = [spec["key"] for spec in PARALLEL_AXIS_SPECS if spec["group"] == "temp"]
+    day_keys = [spec["key"] for spec in PARALLEL_AXIS_SPECS if spec["group"] == "days"]
+    temp_values = profile[temp_keys].to_numpy(dtype=float)
+    day_values = profile[day_keys].to_numpy(dtype=float)
+    temp_low = float(np.nanmin(temp_values))
+    temp_high = float(np.nanmax(temp_values))
+    day_low = 0.0
+    day_high = float(max(1, np.nanmax(day_values)))
+    temp_pad = max(1.0, (temp_high - temp_low) * 0.08)
+    day_pad = max(1.0, day_high * 0.06)
+    return (temp_low - temp_pad, temp_high + temp_pad), (day_low, day_high + day_pad)
+
+
+def _selected_area_keys(area_map: dict[str, list[str]], selected_ids: list[str] | None) -> set[str]:
     selected = set(selected_ids or [])
-    normalized = normalize_for_parallel(df, PARALLEL_VARIABLES)
-    labels = [VARIABLES[key]["label"] for key in PARALLEL_VARIABLES]
+    if not selected:
+        return set()
+    return {
+        area_key
+        for area_key, cell_ids in area_map.items()
+        if selected.intersection(cell_ids)
+    }
+
+
+def parallel_figure(profile, area_map: dict[str, list[str]], selected_ids: list[str] | None, target_year: int, month: int) -> go.Figure:
+    selected_areas = _selected_area_keys(area_map, selected_ids)
+    labels = [
+        spec["label"].replace("target", str(int(target_year)))
+        for spec in PARALLEL_AXIS_SPECS
+    ]
+    temp_range, day_range = _parallel_ranges(profile)
     fig = go.Figure()
 
-    for _, row in normalized.iterrows():
-        cell_id = row["cell_id"]
-        is_selected = cell_id in selected
+    for index, row in profile.iterrows():
+        area_key = row["area_key"]
+        is_selected = area_key in selected_areas
+        y_values = []
+        custom = []
+        for spec in PARALLEL_AXIS_SPECS:
+            raw_value = float(row[spec["key"]])
+            value_range = temp_range if spec["group"] == "temp" else day_range
+            unit = "deg C" if spec["group"] == "temp" else "days"
+            y_values.append(_normalize_parallel_value(raw_value, value_range))
+            custom.append([area_key, row["area_name"], spec["label"].replace("target", str(int(target_year))), raw_value, unit, int(row["cell_count"])])
+
         fig.add_trace(
             go.Scatter(
-                x=labels,
-                y=[row[key] for key in PARALLEL_VARIABLES],
+                x=list(range(len(PARALLEL_AXIS_SPECS))),
+                y=y_values,
                 mode="lines+markers",
                 line={
-                    "color": HIGHLIGHT if is_selected else "rgba(92, 73, 54, 0.24)",
-                    "width": 3.2 if is_selected else 1.25,
+                    "color": HIGHLIGHT if is_selected else AREA_LINE_COLORS[index % len(AREA_LINE_COLORS)],
+                    "width": 4.0 if is_selected else 1.8,
                 },
                 marker={
-                    "size": 7 if is_selected else 5,
-                    "color": HIGHLIGHT if is_selected else "rgba(92, 73, 54, 0.52)",
+                    "size": 8 if is_selected else 6,
+                    "color": HIGHLIGHT if is_selected else AREA_LINE_COLORS[index % len(AREA_LINE_COLORS)],
                     "line": {
-                        "width": 1 if is_selected else 0,
+                        "width": 1.2 if is_selected else 0,
                         "color": INK,
                     },
                 },
-                opacity=1 if is_selected or not selected else 0.18,
-                customdata=[[cell_id, row["area_name"]]] * len(PARALLEL_VARIABLES),
-                hovertemplate="<b>%{customdata[1]}</b><br>%{x}: %{y:.2f} normalized<br>Cell %{customdata[0]}<extra></extra>",
-                showlegend=False,
+                opacity=1 if is_selected or not selected_areas else 0.16,
+                customdata=custom,
+                hovertemplate=(
+                    "<b>%{customdata[1]}</b><br>"
+                    "%{customdata[2]}: %{customdata[3]:.2f} %{customdata[4]}<br>"
+                    "%{customdata[5]} grid cells<extra></extra>"
+                ),
+                name=row["area_name"],
+                showlegend=True,
             )
         )
 
+    for x in range(len(PARALLEL_AXIS_SPECS)):
+        fig.add_vline(x=x, line={"width": 1, "color": "rgba(23,33,43,0.16)"}, layer="below")
+    fig.add_vrect(x0=-0.5, x1=3.5, fillcolor="rgba(244,211,94,0.25)", line_width=0, layer="below")
+    fig.add_vrect(x0=3.5, x1=5.5, fillcolor="rgba(222,45,38,0.14)", line_width=0, layer="below")
+    fig.add_vrect(x0=5.5, x1=7.5, fillcolor="rgba(102,119,130,0.17)", line_width=0, layer="below")
+    fig.add_vrect(x0=7.5, x1=9.5, fillcolor="rgba(33,71,92,0.18)", line_width=0, layer="below")
+
+    tick_text = [
+        f"{temp_range[0]:.0f} C / {day_range[0]:.0f} d",
+        f"{(temp_range[0] + temp_range[1]) / 2:.0f} C / {(day_range[0] + day_range[1]) / 2:.0f} d",
+        f"{temp_range[1]:.0f} C / {day_range[1]:.0f} d",
+    ]
     fig.update_layout(
-        height=380,
-        margin={"l": 46, "r": 18, "t": 10, "b": 96},
+        height=410,
+        margin={"l": 64, "r": 156, "t": 18, "b": 96},
         paper_bgcolor=PAPER_BG,
         plot_bgcolor=PAPER_BG,
         font={"family": "Inter, Segoe UI, Arial, sans-serif", "color": INK},
-        xaxis={"tickangle": -28, "title": "", "showgrid": True, "gridcolor": "rgba(23,33,43,0.12)"},
-        yaxis={"range": [0, 1], "title": "Normalized risk or value", "gridcolor": "rgba(23,33,43,0.09)"},
+        xaxis={
+            "range": [-0.5, len(PARALLEL_AXIS_SPECS) - 0.5],
+            "tickmode": "array",
+            "tickvals": list(range(len(PARALLEL_AXIS_SPECS))),
+            "ticktext": labels,
+            "tickangle": -28,
+            "title": "",
+            "showgrid": False,
+        },
+        yaxis={
+            "range": [0, 1],
+            "title": "Shared normalized scale",
+            "tickmode": "array",
+            "tickvals": [0, 0.5, 1],
+            "ticktext": tick_text,
+            "gridcolor": "rgba(23,33,43,0.09)",
+        },
+        legend={
+            "orientation": "v",
+            "x": 1.01,
+            "xanchor": "left",
+            "y": 1,
+            "font": {"size": 10},
+            "itemsizing": "constant",
+        },
         dragmode="lasso",
         hovermode="closest",
+        uirevision=f"parallel-{target_year}-{month}",
+    )
+    fig.add_annotation(
+        text=f"{MONTH_LABELS[int(month)]} profile | temperature axes use C, remaining axes use days",
+        x=0,
+        y=1.08,
+        xref="paper",
+        yref="paper",
+        showarrow=False,
+        align="left",
+        font={"size": 12, "color": MUTED},
     )
     return fig
 
@@ -753,7 +946,7 @@ def selection_summary(df, selected_ids: list[str] | None) -> html.Div:
         return html.Div(
             [
                 html.Strong("No grid cells selected"),
-                html.Span("Click a map cell, ranking bar, scatter point, or parallel line to link the dashboard."),
+                html.Span("Click a map cell, ranking bar, scatter point, or parallel area line to link the dashboard."),
             ]
         )
     selected_df = df[df["cell_id"].isin(selected)].head(6)
@@ -773,10 +966,11 @@ def selection_summary(df, selected_ids: list[str] | None) -> html.Div:
     )
 
 
-def extract_cell_ids(payload: dict[str, Any] | None) -> list[str]:
+def extract_cell_ids(payload: dict[str, Any] | None, area_map: dict[str, list[str]] | None = None) -> list[str]:
     if not payload or not payload.get("points"):
         return []
     ids: list[str] = []
+    area_map = area_map or {}
     for point in payload["points"]:
         custom = point.get("customdata")
         if isinstance(custom, (list, tuple)) and custom:
@@ -787,6 +981,8 @@ def extract_cell_ids(payload: dict[str, Any] | None) -> list[str]:
             candidate = candidate[0]
         if isinstance(candidate, str) and candidate.startswith("EU-"):
             ids.append(candidate)
+        elif isinstance(candidate, str) and candidate in area_map:
+            ids.extend(area_map[candidate])
     return list(dict.fromkeys(ids))
 
 
@@ -963,6 +1159,7 @@ def update_optimal_filters(target_year, target_month, temp_range, max_mosquito, 
     Input("scatter-chart", "selectedData"),
     Input("focus-graph", "clickData"),
     Input("focus-graph", "selectedData"),
+    State("parallel-area-map-store", "data"),
     State("selected-cells-store", "data"),
 )
 def update_selection(
@@ -985,6 +1182,7 @@ def update_selection(
     scatter_selected,
     focus_click,
     focus_selected,
+    parallel_area_map,
     current_selection,
 ):
     prop_id = ctx.triggered[0]["prop_id"] if ctx.triggered else ""
@@ -1011,7 +1209,7 @@ def update_selection(
         "focus-graph.clickData": focus_click,
         "focus-graph.selectedData": focus_selected,
     }
-    ids = extract_cell_ids(payload_by_prop.get(prop_id))
+    ids = extract_cell_ids(payload_by_prop.get(prop_id), parallel_area_map)
     if prop_id.endswith(".selectedData"):
         return ids if ids else current_selection or []
     if ids:
@@ -1024,7 +1222,6 @@ def update_selection(
     Output("mosquito-map", "figure"),
     Output("heat-risk-map", "figure"),
     Output("dry-risk-map", "figure"),
-    Output("parallel-chart", "figure"),
     Output("ranking-chart", "figure"),
     Output("optimal-map", "figure"),
     Output("scatter-chart", "figure"),
@@ -1054,7 +1251,6 @@ def render_dashboard(active_time, weights, filters, selected_ids, scatter_x, sca
         map_figure(df, "mosquito_days", selected_ids, compact=True, title_suffix=time_label, marker_opacity=0.6),
         map_figure(df, "heat_risk", selected_ids, compact=True, title_suffix=time_label, marker_opacity=0.6),
         map_figure(df, "dryness_risk", selected_ids, compact=True, title_suffix=time_label, marker_opacity=0.6),
-        parallel_figure(df, selected_ids),
         ranking_figure(df, weights, selected_ids),
         map_figure(
             optimal_df,
@@ -1068,6 +1264,19 @@ def render_dashboard(active_time, weights, filters, selected_ids, scatter_x, sca
         scatter_figure(df, scatter_x, scatter_y, selected_ids, weights),
         selection_summary(df, selected_ids),
     )
+
+
+@app.callback(
+    Output("parallel-chart", "figure"),
+    Output("parallel-area-map-store", "data"),
+    Input("parallel-target-year", "value"),
+    Input("parallel-target-month", "value"),
+    Input("selected-cells-store", "data"),
+)
+def render_parallel_chart(target_year, target_month, selected_ids):
+    selected_ids = selected_ids or []
+    profile, area_map = build_parallel_profile(int(target_year), int(target_month))
+    return parallel_figure(profile, area_map, selected_ids, int(target_year), int(target_month)), area_map
 
 
 def find_available_port(start_port: int) -> int:
