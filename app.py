@@ -40,19 +40,24 @@ GRAPH_CONFIG = {
     "modeBarButtonsToRemove": ["autoScale2d", "toggleSpikelines"],
 }
 
-PARALLEL_TEMP_YEARS = [2026, 2036, 2056, 2076]
 PARALLEL_BASE_YEAR = 2026
+PARALLEL_CLUSTER_LAT_STEP = 2.0
+PARALLEL_CLUSTER_LON_STEP = 3.0
 PARALLEL_AXIS_SPECS = [
-    {"key": "temp_2026", "label": "Mean temp 2026", "unit": "deg C", "group": "temp"},
-    {"key": "temp_2036", "label": "Mean temp 2036", "unit": "deg C", "group": "temp"},
-    {"key": "temp_2056", "label": "Mean temp 2056", "unit": "deg C", "group": "temp"},
-    {"key": "temp_2076", "label": "Mean temp 2076", "unit": "deg C", "group": "temp"},
-    {"key": "hot_2026", "label": "Hot days 2026", "unit": "days", "group": "days"},
-    {"key": "hot_target", "label": "Hot days target", "unit": "days", "group": "days"},
-    {"key": "dry_2026", "label": "Dry days 2026", "unit": "days", "group": "days"},
-    {"key": "dry_target", "label": "Dry days target", "unit": "days", "group": "days"},
-    {"key": "mosquito_2026", "label": "Mosquito 2026", "unit": "days", "group": "days"},
-    {"key": "mosquito_target", "label": "Mosquito target", "unit": "days", "group": "days"},
+    {"key": "temp_m0", "label": "Mean temp {year}", "unit": "deg C", "group": "temp", "band": "mean_temp", "year_index": 0},
+    {"key": "temp_m1", "label": "Mean temp {year}", "unit": "deg C", "group": "temp", "band": "mean_temp", "year_index": 1},
+    {"key": "temp_m2", "label": "Mean temp {year}", "unit": "deg C", "group": "temp", "band": "mean_temp", "year_index": 2},
+    {"key": "temp_m3", "label": "Mean temp {year}", "unit": "deg C", "group": "temp", "band": "mean_temp", "year_index": 3},
+    {"key": "daily_min_2026", "label": "Daily min 2026", "unit": "deg C", "group": "temp", "band": "daily_min"},
+    {"key": "daily_min_target", "label": "Daily min target", "unit": "deg C", "group": "temp", "band": "daily_min"},
+    {"key": "daily_max_2026", "label": "Daily max 2026", "unit": "deg C", "group": "temp", "band": "daily_max"},
+    {"key": "daily_max_target", "label": "Daily max target", "unit": "deg C", "group": "temp", "band": "daily_max"},
+    {"key": "hot_2026", "label": "Hot days 2026", "unit": "days", "group": "days", "band": "hot"},
+    {"key": "hot_target", "label": "Hot days target", "unit": "days", "group": "days", "band": "hot"},
+    {"key": "dry_2026", "label": "Dry days 2026", "unit": "days", "group": "days", "band": "dry"},
+    {"key": "dry_target", "label": "Dry days target", "unit": "days", "group": "days", "band": "dry"},
+    {"key": "mosquito_2026", "label": "Mosquito 2026", "unit": "days", "group": "days", "band": "mosquito"},
+    {"key": "mosquito_target", "label": "Mosquito target", "unit": "days", "group": "days", "band": "mosquito"},
 ]
 
 AREA_LINE_COLORS = [
@@ -711,42 +716,133 @@ def ranking_figure(df, weights, selected_ids: list[str] | None) -> go.Figure:
     return fig
 
 
+def _parallel_cluster_lookup(df: pd.DataFrame) -> pd.DataFrame:
+    clusters = df[["cell_id", "area_name", "lat", "lon"]].copy()
+    lat_origin = float(np.floor(clusters["lat"].min()))
+    lon_origin = float(np.floor(clusters["lon"].min()))
+    clusters["lat_bin"] = np.floor((clusters["lat"] - lat_origin) / PARALLEL_CLUSTER_LAT_STEP).astype(int)
+    clusters["lon_bin"] = np.floor((clusters["lon"] - lon_origin) / PARALLEL_CLUSTER_LON_STEP).astype(int)
+    clusters["lat_center"] = lat_origin + (clusters["lat_bin"] + 0.5) * PARALLEL_CLUSTER_LAT_STEP
+    clusters["lon_center"] = lon_origin + (clusters["lon_bin"] + 0.5) * PARALLEL_CLUSTER_LON_STEP
+    area_slug = clusters["area_name"].str.replace(r"[^A-Za-z0-9]+", "-", regex=True).str.strip("-")
+    clusters["parallel_area_key"] = (
+        area_slug
+        + "-"
+        + clusters["lat_bin"].map("{:02d}".format)
+        + "-"
+        + clusters["lon_bin"].map("{:02d}".format)
+    )
+    lat_label = clusters["lat_center"].map(lambda value: f"{abs(value):.0f}{'N' if value >= 0 else 'S'}")
+    lon_label = clusters["lon_center"].map(lambda value: f"{abs(value):.0f}{'E' if value >= 0 else 'W'}")
+    clusters["parallel_area_name"] = clusters["area_name"] + " | " + lat_label + " " + lon_label
+    return clusters
+
+
+def _clustered_means(df: pd.DataFrame, cluster_lookup: pd.DataFrame) -> pd.DataFrame:
+    clustered = df.merge(
+        cluster_lookup[["lat", "lon", "parallel_area_key"]],
+        on=["lat", "lon"],
+        how="inner",
+    )
+    value_columns = [
+        "mean_temp",
+        "daily_min_mean",
+        "daily_max_mean",
+        "hot_days",
+        "dry_days",
+        "mosquito_days",
+    ]
+    return clustered.groupby("parallel_area_key", sort=True)[value_columns].mean()
+
+
+def _cluster_value(grouped: pd.DataFrame, area_key: str, column: str) -> float:
+    if area_key not in grouped.index:
+        return np.nan
+    return float(grouped.at[area_key, column])
+
+
+def _parallel_mean_temp_years(target_year: int) -> list[int]:
+    target_year = int(np.clip(int(target_year), YEAR_MIN, YEAR_MAX))
+    return [
+        int(np.clip(round(year), YEAR_MIN, YEAR_MAX))
+        for year in np.linspace(PARALLEL_BASE_YEAR, target_year, 4)
+    ]
+
+
+def _parallel_axis_label(spec: dict[str, Any], target_year: int) -> str:
+    label = spec["label"]
+    if "year_index" in spec:
+        year = _parallel_mean_temp_years(target_year)[spec["year_index"]]
+        return label.format(year=year)
+    return label.replace("target", str(int(target_year)))
+
+
+def _parallel_band_ranges() -> list[tuple[str, int, int]]:
+    bands: list[tuple[str, int, int]] = []
+    start = 0
+    current = PARALLEL_AXIS_SPECS[0]["band"]
+    for index, spec in enumerate(PARALLEL_AXIS_SPECS[1:], start=1):
+        if spec["band"] != current:
+            bands.append((current, start, index - 1))
+            current = spec["band"]
+            start = index
+    bands.append((current, start, len(PARALLEL_AXIS_SPECS) - 1))
+    return bands
+
+
 def build_parallel_profile(target_year: int, month: int):
     target_year = int(target_year)
     month = int(month)
-    base_df = climate_slice(PARALLEL_BASE_YEAR, month)
+    mean_temp_years = _parallel_mean_temp_years(target_year)
     target_df = climate_slice(target_year, month)
     source_by_year = {
         year: climate_slice(year, month)
-        for year in sorted(set(PARALLEL_TEMP_YEARS + [PARALLEL_BASE_YEAR, target_year]))
+        for year in sorted(set(mean_temp_years + [PARALLEL_BASE_YEAR, target_year]))
     }
+    cluster_lookup = _parallel_cluster_lookup(target_df)
+    cluster_names = (
+        cluster_lookup[["parallel_area_key", "parallel_area_name", "area_name"]]
+        .drop_duplicates("parallel_area_key")
+        .set_index("parallel_area_key")
+    )
     area_map = {
-        area_name: area_df["cell_id"].tolist()
-        for area_name, area_df in target_df.groupby("area_name", sort=True)
+        area_key: area_df["cell_id"].tolist()
+        for area_key, area_df in cluster_lookup.groupby("parallel_area_key", sort=True)
+    }
+    grouped_by_year = {
+        year: _clustered_means(year_df, cluster_lookup)
+        for year, year_df in source_by_year.items()
     }
 
     rows = []
-    for area_name, cell_ids in area_map.items():
+    for area_key, cell_ids in area_map.items():
+        cluster_meta = cluster_names.loc[area_key]
         row = {
-            "area_key": area_name,
-            "area_name": area_name,
+            "area_key": area_key,
+            "area_name": cluster_meta["parallel_area_name"],
+            "macro_area": cluster_meta["area_name"],
             "cell_count": len(cell_ids),
         }
-        for year in PARALLEL_TEMP_YEARS:
-            year_df = source_by_year[year]
-            row[f"temp_{year}"] = float(year_df.loc[year_df["area_name"] == area_name, "mean_temp"].mean())
+        for index, year in enumerate(mean_temp_years):
+            row[f"temp_m{index}"] = _cluster_value(grouped_by_year[year], area_key, "mean_temp")
 
-        base_area = base_df[base_df["area_name"] == area_name]
-        target_area = target_df[target_df["area_name"] == area_name]
-        row["hot_2026"] = float(base_area["hot_days"].mean())
-        row["hot_target"] = float(target_area["hot_days"].mean())
-        row["dry_2026"] = float(base_area["dry_days"].mean())
-        row["dry_target"] = float(target_area["dry_days"].mean())
-        row["mosquito_2026"] = float(base_area["mosquito_days"].mean())
-        row["mosquito_target"] = float(target_area["mosquito_days"].mean())
+        base_grouped = grouped_by_year[PARALLEL_BASE_YEAR]
+        target_grouped = grouped_by_year[target_year]
+        row["daily_min_2026"] = _cluster_value(base_grouped, area_key, "daily_min_mean")
+        row["daily_max_2026"] = _cluster_value(base_grouped, area_key, "daily_max_mean")
+        row["daily_min_target"] = _cluster_value(target_grouped, area_key, "daily_min_mean")
+        row["daily_max_target"] = _cluster_value(target_grouped, area_key, "daily_max_mean")
+        row["hot_2026"] = _cluster_value(base_grouped, area_key, "hot_days")
+        row["hot_target"] = _cluster_value(target_grouped, area_key, "hot_days")
+        row["dry_2026"] = _cluster_value(base_grouped, area_key, "dry_days")
+        row["dry_target"] = _cluster_value(target_grouped, area_key, "dry_days")
+        row["mosquito_2026"] = _cluster_value(base_grouped, area_key, "mosquito_days")
+        row["mosquito_target"] = _cluster_value(target_grouped, area_key, "mosquito_days")
         rows.append(row)
 
-    profile = pd.DataFrame(rows).sort_values("area_name").reset_index(drop=True)
+    axis_keys = [spec["key"] for spec in PARALLEL_AXIS_SPECS]
+    profile = pd.DataFrame(rows).dropna(subset=axis_keys).sort_values("area_name").reset_index(drop=True)
+    area_map = {area_key: area_map[area_key] for area_key in profile["area_key"]}
     return profile, area_map
 
 
@@ -785,15 +881,20 @@ def _selected_area_keys(area_map: dict[str, list[str]], selected_ids: list[str] 
 def parallel_figure(profile, area_map: dict[str, list[str]], selected_ids: list[str] | None, target_year: int, month: int) -> go.Figure:
     selected_areas = _selected_area_keys(area_map, selected_ids)
     labels = [
-        spec["label"].replace("target", str(int(target_year)))
+        _parallel_axis_label(spec, target_year)
         for spec in PARALLEL_AXIS_SPECS
     ]
     temp_range, day_range = _parallel_ranges(profile)
+    macro_colors = {
+        macro_area: AREA_LINE_COLORS[index % len(AREA_LINE_COLORS)]
+        for index, macro_area in enumerate(sorted(profile["macro_area"].unique()))
+    }
     fig = go.Figure()
 
     for index, row in profile.iterrows():
         area_key = row["area_key"]
         is_selected = area_key in selected_areas
+        line_color = HIGHLIGHT if is_selected else macro_colors[row["macro_area"]]
         y_values = []
         custom = []
         for spec in PARALLEL_AXIS_SPECS:
@@ -801,7 +902,17 @@ def parallel_figure(profile, area_map: dict[str, list[str]], selected_ids: list[
             value_range = temp_range if spec["group"] == "temp" else day_range
             unit = "deg C" if spec["group"] == "temp" else "days"
             y_values.append(_normalize_parallel_value(raw_value, value_range))
-            custom.append([area_key, row["area_name"], spec["label"].replace("target", str(int(target_year))), raw_value, unit, int(row["cell_count"])])
+            custom.append(
+                [
+                    area_key,
+                    row["area_name"],
+                    _parallel_axis_label(spec, target_year),
+                    raw_value,
+                    unit,
+                    int(row["cell_count"]),
+                    row["macro_area"],
+                ]
+            )
 
         fig.add_trace(
             go.Scatter(
@@ -809,35 +920,48 @@ def parallel_figure(profile, area_map: dict[str, list[str]], selected_ids: list[
                 y=y_values,
                 mode="lines+markers",
                 line={
-                    "color": HIGHLIGHT if is_selected else AREA_LINE_COLORS[index % len(AREA_LINE_COLORS)],
-                    "width": 4.0 if is_selected else 1.8,
+                    "color": line_color,
+                    "width": 4.0 if is_selected else 1.05,
                 },
                 marker={
-                    "size": 8 if is_selected else 6,
-                    "color": HIGHLIGHT if is_selected else AREA_LINE_COLORS[index % len(AREA_LINE_COLORS)],
+                    "size": 7 if is_selected else 4,
+                    "color": line_color,
                     "line": {
                         "width": 1.2 if is_selected else 0,
                         "color": INK,
                     },
                 },
-                opacity=1 if is_selected or not selected_areas else 0.16,
+                opacity=1 if is_selected else (0.42 if not selected_areas else 0.08),
                 customdata=custom,
                 hovertemplate=(
                     "<b>%{customdata[1]}</b><br>"
+                    "%{customdata[6]}<br>"
                     "%{customdata[2]}: %{customdata[3]:.2f} %{customdata[4]}<br>"
                     "%{customdata[5]} grid cells<extra></extra>"
                 ),
                 name=row["area_name"],
-                showlegend=True,
+                showlegend=False,
             )
         )
 
     for x in range(len(PARALLEL_AXIS_SPECS)):
         fig.add_vline(x=x, line={"width": 1, "color": "rgba(23,33,43,0.16)"}, layer="below")
-    fig.add_vrect(x0=-0.5, x1=3.5, fillcolor="rgba(244,211,94,0.25)", line_width=0, layer="below")
-    fig.add_vrect(x0=3.5, x1=5.5, fillcolor="rgba(222,45,38,0.14)", line_width=0, layer="below")
-    fig.add_vrect(x0=5.5, x1=7.5, fillcolor="rgba(102,119,130,0.17)", line_width=0, layer="below")
-    fig.add_vrect(x0=7.5, x1=9.5, fillcolor="rgba(33,71,92,0.18)", line_width=0, layer="below")
+    band_colors = {
+        "mean_temp": "rgba(244,211,94,0.24)",
+        "daily_min": "rgba(90,169,230,0.18)",
+        "daily_max": "rgba(240,146,74,0.18)",
+        "hot": "rgba(222,45,38,0.14)",
+        "dry": "rgba(102,119,130,0.17)",
+        "mosquito": "rgba(33,71,92,0.18)",
+    }
+    for band, start, end in _parallel_band_ranges():
+        fig.add_vrect(
+            x0=start - 0.5,
+            x1=end + 0.5,
+            fillcolor=band_colors[band],
+            line_width=0,
+            layer="below",
+        )
 
     tick_text = [
         f"{temp_range[0]:.0f} C / {day_range[0]:.0f} d",
@@ -845,8 +969,8 @@ def parallel_figure(profile, area_map: dict[str, list[str]], selected_ids: list[
         f"{temp_range[1]:.0f} C / {day_range[1]:.0f} d",
     ]
     fig.update_layout(
-        height=410,
-        margin={"l": 64, "r": 156, "t": 18, "b": 96},
+        height=430,
+        margin={"l": 64, "r": 28, "t": 18, "b": 118},
         paper_bgcolor=PAPER_BG,
         plot_bgcolor=PAPER_BG,
         font={"family": "Inter, Segoe UI, Arial, sans-serif", "color": INK},
@@ -855,7 +979,7 @@ def parallel_figure(profile, area_map: dict[str, list[str]], selected_ids: list[
             "tickmode": "array",
             "tickvals": list(range(len(PARALLEL_AXIS_SPECS))),
             "ticktext": labels,
-            "tickangle": -28,
+            "tickangle": -32,
             "title": "",
             "showgrid": False,
         },
@@ -867,20 +991,17 @@ def parallel_figure(profile, area_map: dict[str, list[str]], selected_ids: list[
             "ticktext": tick_text,
             "gridcolor": "rgba(23,33,43,0.09)",
         },
-        legend={
-            "orientation": "v",
-            "x": 1.01,
-            "xanchor": "left",
-            "y": 1,
-            "font": {"size": 10},
-            "itemsizing": "constant",
-        },
         dragmode="lasso",
         hovermode="closest",
         uirevision=f"parallel-{target_year}-{month}",
     )
     fig.add_annotation(
-        text=f"{MONTH_LABELS[int(month)]} profile | temperature axes use C, remaining axes use days",
+        text=(
+            f"{MONTH_LABELS[int(month)]} profile | {len(profile)} NUTS2-scale regional clusters | "
+            f"mean temperature spans {_parallel_mean_temp_years(target_year)[0]}-"
+            f"{_parallel_mean_temp_years(target_year)[-1]} | "
+            "temperature axes use C, remaining axes use days"
+        ),
         x=0,
         y=1.08,
         xref="paper",
