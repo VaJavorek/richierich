@@ -98,10 +98,6 @@ def make_layout():
                         [
                             html.Div("Richard Vile Resorts", className="eyebrow"),
                             html.H1("European Climate Opportunity Screen"),
-                            html.P(
-                                "A first-pass investor dashboard for finding future resort locations from climate projections. "
-                                "This version uses deterministic placeholder grids shaped around the Copernicus indicator files."
-                            ),
                         ],
                         className="hero-copy",
                     ),
@@ -140,7 +136,8 @@ def make_layout():
                                         ],
                                         className="hero-control",
                                     ),
-                                ]
+                                ],
+                                className="hero-control-grid",
                             ),
                         ],
                         className="hero-controls",
@@ -365,6 +362,7 @@ def map_figure(
     compact: bool = False,
     candidate_ids: set[str] | None = None,
     title_suffix: str = "",
+    height: int | None = None,
 ) -> go.Figure:
     selected = set(selected_ids or [])
     meta = VARIABLES[variable]
@@ -469,7 +467,8 @@ def map_figure(
             )
         )
 
-    fig = geo_layout(fig, height=225 if compact else 555, compact=compact)
+    figure_height = height if height is not None else 140 if compact else 545
+    fig = geo_layout(fig, height=figure_height, compact=compact)
     if title_suffix:
         fig.add_annotation(
             text=title_suffix,
@@ -513,7 +512,7 @@ def ranking_figure(df, weights, selected_ids: list[str] | None) -> go.Figure:
         )
     )
     fig.update_layout(
-        height=430,
+        height=330,
         margin={"l": 132, "r": 24, "t": 10, "b": 34},
         paper_bgcolor=PAPER_BG,
         plot_bgcolor=PAPER_BG,
@@ -560,7 +559,7 @@ def parallel_figure(df, selected_ids: list[str] | None) -> go.Figure:
         )
 
     fig.update_layout(
-        height=365,
+        height=380,
         margin={"l": 46, "r": 18, "t": 10, "b": 96},
         paper_bgcolor=PAPER_BG,
         plot_bgcolor=PAPER_BG,
@@ -608,7 +607,7 @@ def scatter_figure(df, x_var: str, y_var: str, selected_ids: list[str] | None, w
         )
     )
     fig.update_layout(
-        height=350,
+        height=650,
         dragmode="lasso",
         margin={"l": 62, "r": 12, "t": 8, "b": 58},
         paper_bgcolor=PAPER_BG,
@@ -853,7 +852,7 @@ def render_dashboard(active_time, weights, filters, selected_ids, scatter_x, sca
         map_figure(df, "dryness_risk", selected_ids, compact=True, title_suffix=time_label),
         parallel_figure(df, selected_ids),
         ranking_figure(df, weights, selected_ids),
-        map_figure(optimal_df, "mean_temp", selected_ids, candidate_ids=candidate_ids, title_suffix=candidate_label),
+        map_figure(optimal_df, "mean_temp", selected_ids, candidate_ids=candidate_ids, title_suffix=candidate_label, height=360),
         scatter_figure(df, scatter_x, scatter_y, selected_ids, weights),
         selection_summary(df, selected_ids),
     )

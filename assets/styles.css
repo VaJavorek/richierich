@@ -28,15 +28,15 @@ body {
 .app-shell {
   width: min(1820px, calc(100vw - 32px));
   margin: 0 auto;
-  padding: 22px 0 34px;
+  padding: 14px 0 24px;
 }
 
 .dashboard-hero {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 480px;
-  gap: 22px;
-  align-items: stretch;
-  margin-bottom: 16px;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 10px;
+  align-items: start;
+  margin-bottom: 10px;
 }
 
 .hero-copy,
@@ -50,8 +50,9 @@ body {
 }
 
 .hero-copy {
-  min-height: 178px;
-  padding: 26px 30px;
+  grid-column: 1 / span 8;
+  min-height: 0;
+  padding: 12px 18px;
 }
 
 .eyebrow,
@@ -71,10 +72,10 @@ p {
 }
 
 h1 {
-  margin-top: 8px;
+  margin-top: 4px;
   color: #111b22;
-  font-size: clamp(34px, 4.4vw, 62px);
-  line-height: 0.96;
+  font-size: clamp(28px, 2.55vw, 38px);
+  line-height: 1;
   letter-spacing: 0;
 }
 
@@ -87,46 +88,65 @@ h1 {
 }
 
 .hero-controls {
-  padding: 20px 22px;
+  grid-column: 9 / span 4;
+  padding: 10px 14px;
 }
 
 .hero-control {
-  margin-top: 16px;
+  margin-top: 6px;
+}
+
+.hero-control-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  align-items: start;
 }
 
 label {
   display: block;
-  margin-bottom: 8px;
+  margin-bottom: 4px;
   color: #253540;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 900;
 }
 
 .dashboard-grid {
   display: grid;
-  grid-template-columns: minmax(540px, 2.15fr) minmax(270px, 0.92fr) minmax(390px, 1.25fr);
-  grid-auto-rows: min-content;
-  gap: 16px;
-  align-items: start;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 10px;
+  align-items: stretch;
 }
 
 .panel-card {
   min-width: 0;
   overflow: hidden;
-  padding: 14px;
+  padding: 12px;
+}
+
+.mini-map-card {
+  padding: 8px;
 }
 
 .card-head {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
+}
+
+.mini-map-card .card-head {
+  margin-bottom: 4px;
 }
 
 h2 {
   color: #152734;
   font-size: 18px;
   letter-spacing: 0;
+}
+
+.mini-map-card h2 {
+  font-size: 14px;
 }
 
 .card-title-block p {
@@ -136,36 +156,43 @@ h2 {
   line-height: 1.35;
 }
 
+.mini-map-card .card-title-block p {
+  margin-top: 2px;
+  font-size: 11px;
+  line-height: 1.25;
+}
+
 .main-map-card {
-  grid-column: 1;
-  grid-row: 1 / span 2;
+  grid-column: 1 / span 6;
+  grid-row: 1;
 }
 
 .mini-map-stack {
-  grid-column: 2;
-  grid-row: 1 / span 2;
+  grid-column: 7 / span 2;
+  grid-row: 1;
   display: grid;
   grid-template-rows: repeat(3, minmax(0, 1fr));
-  gap: 16px;
+  gap: 10px;
+  min-height: 623px;
 }
 
 .ranking-card {
-  grid-column: 3;
+  grid-column: 9 / span 4;
   grid-row: 1;
 }
 
 .parallel-card {
-  grid-column: 1 / span 2;
-  grid-row: 3;
-}
-
-.finder-card {
-  grid-column: 3;
+  grid-column: 1 / -1;
   grid-row: 2;
 }
 
+.finder-card {
+  grid-column: 1 / span 8;
+  grid-row: 3;
+}
+
 .scatter-card {
-  grid-column: 3;
+  grid-column: 9 / span 4;
   grid-row: 3;
 }
 
@@ -220,15 +247,15 @@ h2 {
 }
 
 .main-map-graph {
-  min-height: 555px;
+  min-height: 545px;
 }
 
 .mini-map-graph {
-  min-height: 225px;
+  min-height: 140px;
 }
 
 .optimal-map-graph {
-  min-height: 430px;
+  min-height: 360px;
 }
 
 .ranking-content,
@@ -320,6 +347,8 @@ h2 {
     grid-template-columns: 1fr;
   }
 
+  .hero-copy,
+  .hero-controls,
   .main-map-card,
   .mini-map-stack,
   .ranking-card,
@@ -334,6 +363,7 @@ h2 {
   .mini-map-stack {
     grid-template-columns: repeat(3, minmax(0, 1fr));
     grid-template-rows: none;
+    min-height: auto;
   }
 }
 
@@ -351,6 +381,7 @@ h2 {
   }
 
   .mini-map-stack,
+  .hero-control-grid,
   .weight-grid,
   .finder-controls,
   .scatter-controls,
