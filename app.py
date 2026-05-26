@@ -52,14 +52,36 @@ PARALLEL_VARIABLES = [
     "dryness_risk",
 ]
 
+FOCUS_CHARTS = {
+    "main-map": "Main map",
+    "mosquito-map": "Mosquito season",
+    "heat-risk-map": "Heat risk",
+    "dry-risk-map": "Dryness risk",
+    "ranking-chart": "Custom ranking",
+    "parallel-chart": "Parallel coordinates",
+    "optimal-map": "Optimal Area Finder",
+    "scatter-chart": "Correlation scout",
+}
 
-def card(title: str, subtitle: str, children, class_name: str = ""):
+
+def card(title: str, subtitle: str, children, class_name: str = "", focus_key: str | None = None):
+    header_children = [
+        html.Div([html.H2(title), html.P(subtitle)], className="card-title-block"),
+    ]
+    if focus_key:
+        header_children.append(
+            html.Button(
+                "Focus",
+                id=f"focus-open-{focus_key}",
+                className="focus-open-button",
+                n_clicks=0,
+                title=f"Open larger {title} view",
+            )
+        )
     return html.Section(
         [
             html.Div(
-                [
-                    html.Div([html.H2(title), html.P(subtitle)], className="card-title-block"),
-                ],
+                header_children,
                 className="card-head",
             ),
             children,
@@ -102,6 +124,7 @@ def make_layout():
             dcc.Store(id="active-time-store", data={"year": DEFAULT_YEAR, "month": DEFAULT_MONTH}),
             dcc.Store(id="ranking-weights-store", data=DEFAULT_WEIGHTS),
             dcc.Store(id="optimal-filter-store", data=DEFAULT_FILTERS),
+            dcc.Store(id="focused-chart-store", data=None),
             html.Header(
                 [
                     html.Div(
@@ -165,6 +188,7 @@ def make_layout():
                                     "Main map",
                                     "Mean temperature heatmap across the placeholder Europe grid.",
                                     dcc.Graph(id="main-map", config=GRAPH_CONFIG, className="map-graph main-map-graph"),
+                                    focus_key="main-map",
                                 ),
                                 html.Div(
                                     [
@@ -173,18 +197,21 @@ def make_layout():
                                             "Projected tiger mosquito season length.",
                                             dcc.Graph(id="mosquito-map", config=GRAPH_CONFIG, className="map-graph mini-map-graph"),
                                             "mini-map-card",
+                                            focus_key="mosquito-map",
                                         ),
                                         card(
                                             "Heat risk",
                                             "Composite risk from hot days and tropical nights.",
                                             dcc.Graph(id="heat-risk-map", config=GRAPH_CONFIG, className="map-graph mini-map-graph"),
                                             "mini-map-card",
+                                            focus_key="heat-risk-map",
                                         ),
                                         card(
                                             "Dryness risk",
                                             "Consecutive dry-day pressure for resort operations.",
                                             dcc.Graph(id="dry-risk-map", config=GRAPH_CONFIG, className="map-graph mini-map-graph"),
                                             "mini-map-card",
+                                            focus_key="dry-risk-map",
                                         ),
                                     ],
                                     className="mini-map-stack",
@@ -221,6 +248,7 @@ def make_layout():
                                 ],
                                 className="ranking-content",
                             ),
+                            focus_key="ranking-chart",
                         ),
                         "ranking-frame",
                     ),
@@ -230,6 +258,7 @@ def make_layout():
                             "Parallel coordinates",
                             "Each line is one grid cell, normalized across climate variables.",
                             dcc.Graph(id="parallel-chart", config=GRAPH_CONFIG, className="parallel-graph"),
+                            focus_key="parallel-chart",
                         ),
                         "parallel-frame",
                     ),
@@ -320,6 +349,7 @@ def make_layout():
                                 className="finder-content",
                             ),
                             "finder-card",
+                            focus_key="optimal-map",
                         ),
                         "finder-frame",
                     ),
@@ -364,6 +394,7 @@ def make_layout():
                                 className="scatter-content",
                             ),
                             "scatter-card",
+                            focus_key="scatter-chart",
                         ),
                         "scatter-frame",
                     ),
@@ -377,6 +408,29 @@ def make_layout():
                     ),
                 ],
                 className="dashboard-grid",
+            ),
+            html.Div(
+                [
+                    html.Div(
+                        [
+                            html.Div(
+                                [
+                                    html.H2(id="focus-modal-title"),
+                                    html.Button("Close", id="focus-close-button", className="focus-close-button", n_clicks=0),
+                                ],
+                                className="focus-modal-head",
+                            ),
+                            html.Div(
+                                dcc.Graph(id="focus-graph", config=GRAPH_CONFIG, className="focus-graph"),
+                                id="focus-modal-body",
+                                className="focus-modal-body",
+                            ),
+                        ],
+                        className="focus-modal-card",
+                    ),
+                ],
+                id="focus-modal",
+                className="focus-modal is-hidden",
             ),
         ],
         className="app-shell",
@@ -747,6 +801,77 @@ app.layout = make_layout
 
 
 @app.callback(
+    Output("focused-chart-store", "data"),
+    Input("focus-close-button", "n_clicks"),
+    Input("focus-open-main-map", "n_clicks"),
+    Input("focus-open-mosquito-map", "n_clicks"),
+    Input("focus-open-heat-risk-map", "n_clicks"),
+    Input("focus-open-dry-risk-map", "n_clicks"),
+    Input("focus-open-ranking-chart", "n_clicks"),
+    Input("focus-open-parallel-chart", "n_clicks"),
+    Input("focus-open-optimal-map", "n_clicks"),
+    Input("focus-open-scatter-chart", "n_clicks"),
+    prevent_initial_call=True,
+)
+def update_focused_chart(_close_clicks, *_focus_clicks):
+    prop_id = ctx.triggered[0]["prop_id"] if ctx.triggered else ""
+    trigger_id = prop_id.split(".")[0]
+    if trigger_id == "focus-close-button":
+        return None
+    if trigger_id.startswith("focus-open-"):
+        return trigger_id.replace("focus-open-", "", 1)
+    return None
+
+
+@app.callback(
+    Output("focus-modal", "className"),
+    Output("focus-modal-title", "children"),
+    Output("focus-graph", "figure"),
+    Input("focused-chart-store", "data"),
+    Input("main-map", "figure"),
+    Input("mosquito-map", "figure"),
+    Input("heat-risk-map", "figure"),
+    Input("dry-risk-map", "figure"),
+    Input("ranking-chart", "figure"),
+    Input("parallel-chart", "figure"),
+    Input("optimal-map", "figure"),
+    Input("scatter-chart", "figure"),
+)
+def render_focus_modal(
+    focused_chart,
+    main_map,
+    mosquito_map,
+    heat_risk_map,
+    dry_risk_map,
+    ranking_chart,
+    parallel_chart,
+    optimal_map,
+    scatter_chart,
+):
+    figures = {
+        "main-map": main_map,
+        "mosquito-map": mosquito_map,
+        "heat-risk-map": heat_risk_map,
+        "dry-risk-map": dry_risk_map,
+        "ranking-chart": ranking_chart,
+        "parallel-chart": parallel_chart,
+        "optimal-map": optimal_map,
+        "scatter-chart": scatter_chart,
+    }
+    if not focused_chart or focused_chart not in figures or not figures[focused_chart]:
+        return "focus-modal is-hidden", "", go.Figure()
+
+    figure = go.Figure(figures[focused_chart])
+    figure.update_layout(height=760, autosize=True)
+
+    return (
+        "focus-modal",
+        FOCUS_CHARTS.get(focused_chart, "Focused chart"),
+        figure,
+    )
+
+
+@app.callback(
     Output("active-time-store", "data"),
     Input("year-slider", "value"),
     Input("month-slider", "value"),
@@ -836,6 +961,8 @@ def update_optimal_filters(target_year, target_month, temp_range, max_mosquito, 
     Input("parallel-chart", "selectedData"),
     Input("scatter-chart", "clickData"),
     Input("scatter-chart", "selectedData"),
+    Input("focus-graph", "clickData"),
+    Input("focus-graph", "selectedData"),
     State("selected-cells-store", "data"),
 )
 def update_selection(
@@ -856,6 +983,8 @@ def update_selection(
     parallel_selected,
     scatter_click,
     scatter_selected,
+    focus_click,
+    focus_selected,
     current_selection,
 ):
     prop_id = ctx.triggered[0]["prop_id"] if ctx.triggered else ""
@@ -879,6 +1008,8 @@ def update_selection(
         "parallel-chart.selectedData": parallel_selected,
         "scatter-chart.clickData": scatter_click,
         "scatter-chart.selectedData": scatter_selected,
+        "focus-graph.clickData": focus_click,
+        "focus-graph.selectedData": focus_selected,
     }
     ids = extract_cell_ids(payload_by_prop.get(prop_id))
     if prop_id.endswith(".selectedData"):
