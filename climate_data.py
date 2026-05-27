@@ -126,11 +126,11 @@ ANALYSIS_VARIABLES = [
 ]
 
 DEFAULT_WEIGHTS = {
-    "temperature": 35,
+    "temperature": 40,
     "mosquito": 20,
     "heat": 20,
-    "dryness": 15,
-    "nights": 10,
+    "dryness": 20,
+    "nights": 20,
 }
 
 DEFAULT_FILTERS = {

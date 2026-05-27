@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import calendar
 import socket
+from functools import lru_cache
 from typing import Any
 
 import numpy as np
@@ -73,6 +75,44 @@ AREA_LINE_COLORS = [
     "#526a84",
     "#8a6a96",
     "#5d7f52",
+]
+
+RANKING_COMPONENTS = [
+    {
+        "score": "optimal_temperature_score",
+        "contribution": "optimal_temperature_weighted",
+        "weight": "temperature",
+        "label": "Optimal temperature days",
+        "color": "#f4d35e",
+    },
+    {
+        "score": "low_heat_score",
+        "contribution": "low_heat_weighted",
+        "weight": "heat",
+        "label": "Low heat risk",
+        "color": "#de2d26",
+    },
+    {
+        "score": "low_dryness_score",
+        "contribution": "low_dryness_weighted",
+        "weight": "dryness",
+        "label": "Low dry risk",
+        "color": "#8b9299",
+    },
+    {
+        "score": "low_mosquito_score",
+        "contribution": "low_mosquito_weighted",
+        "weight": "mosquito",
+        "label": "Low mosquito risk",
+        "color": "#2f8fce",
+    },
+    {
+        "score": "low_tropical_night_score",
+        "contribution": "low_tropical_night_weighted",
+        "weight": "nights",
+        "label": "Low tropical night risk",
+        "color": "#815ac0",
+    },
 ]
 
 FOCUS_CHARTS = {
@@ -149,6 +189,7 @@ def make_layout():
             dcc.Store(id="optimal-filter-store", data=DEFAULT_FILTERS),
             dcc.Store(id="focused-chart-store", data=None),
             dcc.Store(id="parallel-area-map-store", data={}),
+            dcc.Store(id="ranking-area-map-store", data={}),
             html.Header(
                 [
                     html.Div(
@@ -249,22 +290,22 @@ def make_layout():
                         "Custom ranking",
                         card(
                             "Custom ranking",
-                            "Weighted shortlist of climate-driven resort candidates.",
+                            "Weighted annual score across climate opportunity components.",
                             html.Div(
                                 [
                                     html.Div(
                                         [
                                             slider_value(
                                                 "weight-temperature",
-                                                "Temperature comfort",
+                                                "Optimal temp days",
                                                 DEFAULT_WEIGHTS["temperature"],
                                                 0,
                                                 50,
                                             ),
-                                            slider_value("weight-mosquito", "Low mosquito burden", DEFAULT_WEIGHTS["mosquito"], 0, 50),
                                             slider_value("weight-heat", "Low heat risk", DEFAULT_WEIGHTS["heat"], 0, 50),
-                                            slider_value("weight-dryness", "Low dryness risk", DEFAULT_WEIGHTS["dryness"], 0, 50),
-                                            slider_value("weight-nights", "Low tropical nights", DEFAULT_WEIGHTS["nights"], 0, 50),
+                                            slider_value("weight-dryness", "Low dry risk", DEFAULT_WEIGHTS["dryness"], 0, 50),
+                                            slider_value("weight-mosquito", "Low mosquito risk", DEFAULT_WEIGHTS["mosquito"], 0, 50),
+                                            slider_value("weight-nights", "Low tropical night risk", DEFAULT_WEIGHTS["nights"], 0, 50),
                                         ],
                                         className="weight-grid",
                                     ),
@@ -677,43 +718,166 @@ def map_figure(
     return fig
 
 
-def ranking_figure(df, weights, selected_ids: list[str] | None) -> go.Figure:
-    selected = set(selected_ids or [])
-    top = score_candidates(df, weights).head(12).copy().sort_values("resort_score")
-    labels = top["area_name"] + " | " + top["cell_id"]
-    colors = [HIGHLIGHT if cell_id in selected else "#be7f42" for cell_id in top["cell_id"]]
-    fig = go.Figure(
-        go.Bar(
-            x=top["resort_score"],
-            y=labels,
-            orientation="h",
-            marker={"color": colors, "line": {"color": "rgba(23,33,43,0.18)", "width": 1}},
-            customdata=top[["cell_id", "area_name", "mean_temp", "mosquito_days", "heat_risk", "dryness_risk"]],
-            hovertemplate=(
-                "<b>%{customdata[1]}</b><br>"
-                "Cell %{customdata[0]}<br>"
-                "Suitability: %{x:.1f}/100<br>"
-                "Mean temp: %{customdata[2]:.1f} deg C<br>"
-                "Mosquito season: %{customdata[3]:.0f} days<br>"
-                "Heat risk: %{customdata[4]:.0f}<br>"
-                "Dryness risk: %{customdata[5]:.0f}<extra></extra>"
-            ),
-            selected={"marker": {"color": HIGHLIGHT}},
-            unselected={"marker": {"opacity": 0.35}},
+@lru_cache(maxsize=96)
+def _annual_ranking_cell_scores(target_year: int, temp_min_tenths: int, temp_max_tenths: int) -> pd.DataFrame:
+    target_year = int(target_year)
+    temp_min = temp_min_tenths / 10
+    temp_max = temp_max_tenths / 10
+    days_in_year = sum(calendar.monthrange(target_year, month)[1] for month in MONTH_LABELS)
+
+    monthly_rows = []
+    for month in MONTH_LABELS:
+        month_days = calendar.monthrange(target_year, month)[1]
+        month_df = climate_slice(target_year, month)[
+            [
+                "cell_id",
+                "area_name",
+                "lat",
+                "lon",
+                "mean_temp",
+                "hot_days",
+                "dry_days",
+                "tropical_nights",
+                "mosquito_days",
+            ]
+        ].copy()
+        month_df["optimal_temperature_days"] = np.where(
+            month_df["mean_temp"].between(temp_min, temp_max),
+            month_days,
+            0,
+        )
+        monthly_rows.append(month_df)
+
+    yearly = (
+        pd.concat(monthly_rows, ignore_index=True)
+        .groupby(["cell_id", "area_name", "lat", "lon"], as_index=False)
+        .agg(
+            {
+                "optimal_temperature_days": "sum",
+                "hot_days": "sum",
+                "dry_days": "sum",
+                "tropical_nights": "sum",
+                "mosquito_days": "max",
+            }
         )
     )
+    yearly["hot_days"] = yearly["hot_days"].clip(upper=days_in_year)
+    yearly["dry_days"] = yearly["dry_days"].clip(upper=days_in_year)
+    yearly["tropical_nights"] = yearly["tropical_nights"].clip(upper=days_in_year)
+    yearly["mosquito_days"] = yearly["mosquito_days"].clip(upper=days_in_year)
+
+    yearly["optimal_temperature_score"] = yearly["optimal_temperature_days"] / days_in_year * 100
+    yearly["low_mosquito_score"] = (days_in_year - yearly["mosquito_days"]) / days_in_year * 100
+    yearly["low_dryness_score"] = (days_in_year - yearly["dry_days"]) / days_in_year * 100
+    yearly["low_heat_score"] = (days_in_year - yearly["hot_days"]) / days_in_year * 100
+    yearly["low_tropical_night_score"] = (days_in_year - yearly["tropical_nights"]) / days_in_year * 100
+    return yearly
+
+
+def ranking_scores(filters, weights):
+    filters = {**DEFAULT_FILTERS, **(filters or {})}
+    weights = {**DEFAULT_WEIGHTS, **(weights or {})}
+    target_year = int(filters["target_year"])
+    temp_min_tenths = int(round(float(filters["temp_min"]) * 10))
+    temp_max_tenths = int(round(float(filters["temp_max"]) * 10))
+    cell_scores = _annual_ranking_cell_scores(target_year, temp_min_tenths, temp_max_tenths).copy()
+    cluster_lookup = _parallel_cluster_lookup(cell_scores)
+    area_map = {
+        area_key: area_df["cell_id"].tolist()
+        for area_key, area_df in cluster_lookup.groupby("parallel_area_key", sort=True)
+    }
+
+    clustered = cell_scores.merge(
+        cluster_lookup[["lat", "lon", "parallel_area_key", "parallel_area_name"]],
+        on=["lat", "lon"],
+        how="inner",
+    )
+    score_columns = [component["score"] for component in RANKING_COMPONENTS]
+    grouped = (
+        clustered.groupby(["parallel_area_key", "parallel_area_name"], as_index=False)
+        .agg({**{column: "mean" for column in score_columns}, "cell_id": "count"})
+        .rename(
+            columns={
+                "parallel_area_key": "area_key",
+                "parallel_area_name": "area_name",
+                "cell_id": "cell_count",
+            }
+        )
+    )
+
+    total_weight = sum(max(float(weights[component["weight"]]), 0) for component in RANKING_COMPONENTS) or 1
+    for component in RANKING_COMPONENTS:
+        grouped[component["contribution"]] = (
+            grouped[component["score"]] * max(float(weights[component["weight"]]), 0) / total_weight
+        )
+    grouped["resort_score"] = grouped[[component["contribution"] for component in RANKING_COMPONENTS]].sum(axis=1)
+    return grouped.sort_values("resort_score", ascending=False).reset_index(drop=True), area_map
+
+
+def ranking_figure(filters, weights, selected_ids: list[str] | None) -> tuple[go.Figure, dict[str, list[str]]]:
+    ranking, area_map = ranking_scores(filters, weights)
+    top = ranking.head(12).copy().sort_values("resort_score")
+    selected_areas = _selected_area_keys(area_map, selected_ids)
+    selected_indices = [index for index, area_key in enumerate(top["area_key"]) if area_key in selected_areas]
+    fig = go.Figure()
+
+    for component in RANKING_COMPONENTS:
+        customdata = top[
+            [
+                "area_key",
+                "area_name",
+                "resort_score",
+                component["score"],
+                component["contribution"],
+                "cell_count",
+            ]
+        ]
+        fig.add_trace(
+            go.Bar(
+                x=top[component["contribution"]],
+                y=top["area_name"],
+                orientation="h",
+                name=component["label"],
+                marker={
+                    "color": component["color"],
+                    "line": {"color": "rgba(23,33,43,0.18)", "width": 0.8},
+                },
+                customdata=customdata,
+                hovertemplate=(
+                    "<b>%{customdata[1]}</b><br>"
+                    "Total score: %{customdata[2]:.1f}/100<br>"
+                    f"{component['label']}: "
+                    "%{customdata[3]:.1f}%<br>"
+                    "Weighted contribution: %{customdata[4]:.1f}<br>"
+                    "%{customdata[5]} grid cells<extra></extra>"
+                ),
+                selectedpoints=selected_indices or None,
+                selected={"marker": {"opacity": 1}},
+                unselected={"marker": {"opacity": 0.22}},
+            )
+        )
+
     fig.update_layout(
-        height=330,
-        margin={"l": 132, "r": 24, "t": 10, "b": 34},
+        height=350,
+        margin={"l": 142, "r": 24, "t": 34, "b": 34},
         paper_bgcolor=PAPER_BG,
         plot_bgcolor=PAPER_BG,
         font={"family": "Inter, Segoe UI, Arial, sans-serif", "color": INK},
         xaxis={"range": [0, 100], "title": "Resort opportunity score", "gridcolor": "rgba(23,33,43,0.09)"},
         yaxis={"title": "", "tickfont": {"size": 11}},
-        bargap=0.28,
+        barmode="stack",
+        bargap=0.3,
         dragmode="select",
+        legend={
+            "orientation": "h",
+            "yanchor": "bottom",
+            "y": 1.02,
+            "xanchor": "left",
+            "x": 0,
+            "font": {"size": 9},
+        },
     )
-    return fig
+    return fig, area_map
 
 
 def _parallel_cluster_lookup(df: pd.DataFrame) -> pd.DataFrame:
@@ -1281,6 +1445,7 @@ def update_optimal_filters(target_year, target_month, temp_range, max_mosquito, 
     Input("focus-graph", "clickData"),
     Input("focus-graph", "selectedData"),
     State("parallel-area-map-store", "data"),
+    State("ranking-area-map-store", "data"),
     State("selected-cells-store", "data"),
 )
 def update_selection(
@@ -1304,6 +1469,7 @@ def update_selection(
     focus_click,
     focus_selected,
     parallel_area_map,
+    ranking_area_map,
     current_selection,
 ):
     prop_id = ctx.triggered[0]["prop_id"] if ctx.triggered else ""
@@ -1330,10 +1496,13 @@ def update_selection(
         "focus-graph.clickData": focus_click,
         "focus-graph.selectedData": focus_selected,
     }
-    ids = extract_cell_ids(payload_by_prop.get(prop_id), parallel_area_map)
+    area_map = {**(parallel_area_map or {}), **(ranking_area_map or {})}
+    ids = extract_cell_ids(payload_by_prop.get(prop_id), area_map)
     if prop_id.endswith(".selectedData"):
         return ids if ids else current_selection or []
     if ids:
+        if prop_id.startswith(("ranking-chart.", "parallel-chart.")) or (prop_id.startswith("focus-graph.") and len(ids) > 1):
+            return ids
         return ids[:1]
     return current_selection or []
 
@@ -1344,6 +1513,7 @@ def update_selection(
     Output("heat-risk-map", "figure"),
     Output("dry-risk-map", "figure"),
     Output("ranking-chart", "figure"),
+    Output("ranking-area-map-store", "data"),
     Output("optimal-map", "figure"),
     Output("scatter-chart", "figure"),
     Output("selection-summary", "children"),
@@ -1366,13 +1536,15 @@ def render_dashboard(active_time, weights, filters, selected_ids, scatter_x, sca
     candidates = optimal_candidates(optimal_df, filters)
     candidate_ids = set(candidates["cell_id"])
     candidate_label = f"{len(candidates):,} matching cells | {MONTH_LABELS[int(filters['target_month'])]} {int(filters['target_year'])}"
+    ranking_fig, ranking_area_map = ranking_figure(filters, weights, selected_ids)
 
     return (
         map_figure(df, "mean_temp", selected_ids, title_suffix=time_label, auto_range=True, marker_opacity=0.65),
         map_figure(df, "mosquito_days", selected_ids, compact=True, title_suffix=time_label, marker_opacity=0.6),
         map_figure(df, "heat_risk", selected_ids, compact=True, title_suffix=time_label, marker_opacity=0.6),
         map_figure(df, "dryness_risk", selected_ids, compact=True, title_suffix=time_label, marker_opacity=0.6),
-        ranking_figure(df, weights, selected_ids),
+        ranking_fig,
+        ranking_area_map,
         map_figure(
             optimal_df,
             "mean_temp",
