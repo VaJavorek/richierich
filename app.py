@@ -9,6 +9,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+import dash_bootstrap_components as dbc
 from dash import Dash, Input, Output, State, ctx, dcc, html
 
 from climate_data import (
@@ -29,10 +30,10 @@ from climate_data import (
 )
 
 
-HIGHLIGHT = "#f4d35e"
-INK = "#17212b"
-MUTED = "#667782"
-CARD_BG = "#fffaf1"
+HIGHLIGHT = "#f6d37a"
+INK = "#14202a"
+MUTED = "#60717a"
+CARD_BG = "#fbf3df"
 PAPER_BG = "rgba(0,0,0,0)"
 
 GRAPH_CONFIG = {
@@ -134,6 +135,29 @@ FOCUS_CHARTS = {
     "optimal-map": "Optimal Area Finder",
     "scatter-chart": "Correlation scout",
 }
+
+PLOT_FONT = "Inter, Segoe UI, Arial, sans-serif"
+
+
+def premium_plot_layout(fig: go.Figure) -> go.Figure:
+    fig.update_layout(
+        paper_bgcolor=PAPER_BG,
+        plot_bgcolor=PAPER_BG,
+        font={"family": PLOT_FONT, "color": INK},
+        hoverlabel={
+            "bgcolor": "rgba(251,243,223,0.96)",
+            "bordercolor": "rgba(198,155,78,0.42)",
+            "font": {"family": PLOT_FONT, "color": INK, "size": 12},
+        },
+        legend={
+            "bgcolor": "rgba(251,243,223,0.72)",
+            "bordercolor": "rgba(198,155,78,0.22)",
+            "borderwidth": 1,
+            "font": {"size": 10, "color": INK},
+        },
+    )
+    return fig
+
 
 ALL_YEAR_VALUE = "all"
 MONTH_DAY_LIMIT = 31
@@ -625,23 +649,24 @@ def make_layout():
 
 
 def geo_layout(fig: go.Figure, height: int, compact: bool = False) -> go.Figure:
+    premium_plot_layout(fig)
     fig.update_layout(
         paper_bgcolor=PAPER_BG,
         plot_bgcolor=PAPER_BG,
         margin={"l": 4, "r": 4, "t": 4, "b": 4},
         height=height,
-        font={"family": "Inter, Segoe UI, Arial, sans-serif", "color": INK},
+        font={"family": PLOT_FONT, "color": INK},
         geo={
             "scope": "europe",
             "projection": {"type": "natural earth"},
             "showland": True,
-            "landcolor": "#f8efe0",
+            "landcolor": "#efe1c4",
             "showocean": True,
-            "oceancolor": "#dfe9ed",
+            "oceancolor": "#d4e5e7",
             "showlakes": True,
-            "lakecolor": "#dfe9ed",
-            "coastlinecolor": "rgba(23,33,43,0.28)",
-            "countrycolor": "rgba(23,33,43,0.18)",
+            "lakecolor": "#d4e5e7",
+            "coastlinecolor": "rgba(20,32,42,0.34)",
+            "countrycolor": "rgba(20,32,42,0.22)",
             "lonaxis": {"range": [-13, 38]},
             "lataxis": {"range": [34, 65]},
             "bgcolor": PAPER_BG,
@@ -1240,13 +1265,14 @@ def ranking_figure(
             )
         )
 
+    premium_plot_layout(fig)
     fig.update_layout(
         height=350,
         margin={"l": 142, "r": 24, "t": 34, "b": 34},
         paper_bgcolor=PAPER_BG,
         plot_bgcolor=PAPER_BG,
-        font={"family": "Inter, Segoe UI, Arial, sans-serif", "color": INK},
-        xaxis={"range": [0, 100], "title": "Resort opportunity score", "gridcolor": "rgba(23,33,43,0.09)"},
+        font={"family": PLOT_FONT, "color": INK},
+        xaxis={"range": [0, 100], "title": "Resort opportunity score", "gridcolor": "rgba(20,32,42,0.08)"},
         yaxis={"title": "", "tickfont": {"size": 11}},
         barmode="stack",
         bargap=0.3,
@@ -1538,12 +1564,13 @@ def parallel_figure(
         f"{(temp_range[0] + temp_range[1]) / 2:.0f} C / {(day_range[0] + day_range[1]) / 2:.0f} d",
         f"{temp_range[1]:.0f} C / {day_range[1]:.0f} d",
     ]
+    premium_plot_layout(fig)
     fig.update_layout(
         height=430,
         margin={"l": 64, "r": 28, "t": 18, "b": 118},
         paper_bgcolor=PAPER_BG,
         plot_bgcolor=PAPER_BG,
-        font={"family": "Inter, Segoe UI, Arial, sans-serif", "color": INK},
+        font={"family": PLOT_FONT, "color": INK},
         xaxis={
             "range": [-0.5, len(PARALLEL_AXIS_SPECS) - 0.5],
             "tickmode": "array",
@@ -1559,7 +1586,7 @@ def parallel_figure(
             "tickmode": "array",
             "tickvals": [0, 0.5, 1],
             "ticktext": tick_text,
-            "gridcolor": "rgba(23,33,43,0.09)",
+            "gridcolor": "rgba(20,32,42,0.08)",
         },
         dragmode="lasso",
         hovermode="closest",
@@ -1617,15 +1644,16 @@ def scatter_figure(df, x_var: str, y_var: str, selected_ids: list[str] | None, w
             ),
         )
     )
+    premium_plot_layout(fig)
     fig.update_layout(
         height=650,
         dragmode="lasso",
         margin={"l": 62, "r": 12, "t": 8, "b": 58},
         paper_bgcolor=PAPER_BG,
         plot_bgcolor=PAPER_BG,
-        font={"family": "Inter, Segoe UI, Arial, sans-serif", "color": INK},
-        xaxis={"title": f"{VARIABLES[x_var]['label']} ({VARIABLES[x_var]['unit']})", "gridcolor": "rgba(23,33,43,0.09)"},
-        yaxis={"title": f"{VARIABLES[y_var]['label']} ({VARIABLES[y_var]['unit']})", "gridcolor": "rgba(23,33,43,0.09)"},
+        font={"family": PLOT_FONT, "color": INK},
+        xaxis={"title": f"{VARIABLES[x_var]['label']} ({VARIABLES[x_var]['unit']})", "gridcolor": "rgba(20,32,42,0.08)"},
+        yaxis={"title": f"{VARIABLES[y_var]['label']} ({VARIABLES[y_var]['unit']})", "gridcolor": "rgba(20,32,42,0.08)"},
         hovermode="closest",
     )
     return fig
@@ -1681,6 +1709,7 @@ app = Dash(
     __name__,
     title="Climate Resort Opportunity Screen",
     update_title=None,
+    external_stylesheets=[dbc.themes.QUARTZ],
     meta_tags=[{"name": "viewport", "content": "width=device-width, initial-scale=1"}],
 )
 server = app.server
