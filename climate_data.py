@@ -47,19 +47,23 @@ VARIABLES = {
         "label": "Mean temperature",
         "unit": "deg C",
         "colorscale": [
-            [0.0, "#fde0dd"],
-            [0.2, "#fcbba1"],
-            [0.4, "#fc9272"],
-            [0.6, "#fb6a4a"],
-            [0.8, "#de2d26"],
-            [1.0, "#a50f15"],
+            [0.0, "#fff7bc"],
+            [0.25, "#fee391"],
+            [0.5, "#fec44f"],
+            [0.75, "#fe9929"],
+            [1.0, "#cc4c02"],
         ],
         "range": (-10, 43),
     },
     "mosquito_days": {
         "label": "Mosquito season",
         "unit": "days/year",
-        "colorscale": "Viridis",
+        "colorscale": [
+            [0.0, "#f3e8ff"],
+            [0.35, "#d8b4fe"],
+            [0.7, "#9333ea"],
+            [1.0, "#4c1d95"],
+        ],
         "range": (0, 210),
     },
     "hot_days": {
@@ -95,13 +99,23 @@ VARIABLES = {
     "heat_risk": {
         "label": "Heat risk",
         "unit": "score",
-        "colorscale": "Inferno",
+        "colorscale": [
+            [0.0, "#ffe4e6"],
+            [0.35, "#fda4af"],
+            [0.7, "#ef4444"],
+            [1.0, "#7f1d1d"],
+        ],
         "range": (0, 100),
     },
     "dryness_risk": {
         "label": "Dryness risk",
         "unit": "score",
-        "colorscale": "YlOrBr",
+        "colorscale": [
+            [0.0, "#f3f4f6"],
+            [0.35, "#d1d5db"],
+            [0.7, "#6b7280"],
+            [1.0, "#1f2937"],
+        ],
         "range": (0, 100),
     },
     "temp_change": {

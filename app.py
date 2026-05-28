@@ -607,6 +607,21 @@ def map_figure(
 ) -> go.Figure:
     selected = set(selected_ids or [])
     meta = VARIABLES[variable]
+    show_risk_colorbar = compact and variable in {"mosquito_days", "heat_risk", "dryness_risk"}
+    map_colorbar = {
+        "title": meta["unit"],
+        "len": 0.62,
+        "thickness": 10,
+    }
+    if show_risk_colorbar:
+        map_colorbar = {
+            "title": {"text": f"{meta['label']}<br>{meta['unit']}", "font": {"size": 10}},
+            "len": 0.78,
+            "thickness": 8,
+            "x": 1.01,
+            "y": 0.5,
+            "tickfont": {"size": 9},
+        }
     fig = go.Figure()
     if auto_range:
         scale_series = df[variable]
@@ -634,12 +649,8 @@ def map_figure(
                     "cmin": cmin,
                     "cmax": cmax,
                     "line": {"width": 0.4, "color": "rgba(255,255,255,0.65)"},
-                    "colorbar": {
-                        "title": meta["unit"],
-                        "len": 0.62,
-                        "thickness": 10,
-                    }
-                    if not compact
+                    "colorbar": map_colorbar
+                    if not compact or show_risk_colorbar
                     else None,
                 },
                 opacity=marker_opacity,
@@ -722,6 +733,8 @@ def map_figure(
 
     figure_height = height if height is not None else 140 if compact else 545
     fig = geo_layout(fig, height=figure_height, compact=compact)
+    if show_risk_colorbar:
+        fig.update_layout(margin={"l": 0, "r": 46, "t": 0, "b": 0})
     if title_suffix:
         fig.add_annotation(
             text=title_suffix,
@@ -1584,9 +1597,9 @@ def render_dashboard(active_time, weights, filters, selected_ids, scatter_x, sca
 
     return (
         map_figure(df, "mean_temp", selected_ids, title_suffix=time_label, auto_range=True, marker_opacity=0.65),
-        map_figure(df, "mosquito_days", selected_ids, compact=True, title_suffix=time_label, marker_opacity=0.6),
-        map_figure(df, "heat_risk", selected_ids, compact=True, title_suffix=time_label, marker_opacity=0.6),
-        map_figure(df, "dryness_risk", selected_ids, compact=True, title_suffix=time_label, marker_opacity=0.6),
+        map_figure(df, "mosquito_days", selected_ids, compact=True, title_suffix=time_label, marker_opacity=0.42),
+        map_figure(df, "heat_risk", selected_ids, compact=True, title_suffix=time_label, marker_opacity=0.42),
+        map_figure(df, "dryness_risk", selected_ids, compact=True, title_suffix=time_label, marker_opacity=0.42),
         ranking_fig,
         ranking_area_map,
         map_figure(
