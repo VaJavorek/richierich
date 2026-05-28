@@ -45,6 +45,10 @@ GRAPH_CONFIG = {
 PARALLEL_BASE_YEAR = 2026
 PARALLEL_CLUSTER_LAT_STEP = 2.0
 PARALLEL_CLUSTER_LON_STEP = 3.0
+PARALLEL_CLUSTER_MODES = {
+    "small": "2 deg x 3 deg regional tiles",
+    "big": "13 macro climate regions",
+}
 PARALLEL_AXIS_SPECS = [
     {"key": "temp_m0", "label": "Mean temp {year}", "unit": "deg C", "group": "temp", "band": "mean_temp", "year_index": 0},
     {"key": "temp_m1", "label": "Mean temp {year}", "unit": "deg C", "group": "temp", "band": "mean_temp", "year_index": 1},
@@ -355,6 +359,23 @@ def make_layout():
                                                     ),
                                                 ],
                                                 className="small-control",
+                                            ),
+                                            html.Div(
+                                                [
+                                                    html.Label("Cluster size"),
+                                                    dcc.RadioItems(
+                                                        id="parallel-cluster-mode",
+                                                        options=[
+                                                            {"label": "2 deg x 3 deg tiles", "value": "small"},
+                                                            {"label": "13 macro regions", "value": "big"},
+                                                        ],
+                                                        value="small",
+                                                        inline=True,
+                                                        className="cluster-radio",
+                                                        labelStyle={"display": "inline-flex", "alignItems": "center"},
+                                                    ),
+                                                ],
+                                                className="cluster-mode-control",
                                             ),
                                         ],
                                         className="parallel-controls",
@@ -880,7 +901,7 @@ def ranking_figure(filters, weights, selected_ids: list[str] | None) -> tuple[go
     return fig, area_map
 
 
-def _parallel_cluster_lookup(df: pd.DataFrame) -> pd.DataFrame:
+def _small_parallel_cluster_lookup(df: pd.DataFrame) -> pd.DataFrame:
     clusters = df[["cell_id", "area_name", "lat", "lon"]].copy()
     lat_origin = float(np.floor(clusters["lat"].min()))
     lon_origin = float(np.floor(clusters["lon"].min()))
@@ -900,6 +921,20 @@ def _parallel_cluster_lookup(df: pd.DataFrame) -> pd.DataFrame:
     lon_label = clusters["lon_center"].map(lambda value: f"{abs(value):.0f}{'E' if value >= 0 else 'W'}")
     clusters["parallel_area_name"] = clusters["area_name"] + " | " + lat_label + " " + lon_label
     return clusters
+
+
+def _big_parallel_cluster_lookup(df: pd.DataFrame) -> pd.DataFrame:
+    clusters = df[["cell_id", "area_name", "lat", "lon"]].copy()
+    area_slug = clusters["area_name"].str.replace(r"[^A-Za-z0-9]+", "-", regex=True).str.strip("-")
+    clusters["parallel_area_key"] = "macro-" + area_slug
+    clusters["parallel_area_name"] = clusters["area_name"]
+    return clusters
+
+
+def _parallel_cluster_lookup(df: pd.DataFrame, cluster_mode: str = "small") -> pd.DataFrame:
+    if cluster_mode == "big":
+        return _big_parallel_cluster_lookup(df)
+    return _small_parallel_cluster_lookup(df)
 
 
 def _clustered_means(df: pd.DataFrame, cluster_lookup: pd.DataFrame) -> pd.DataFrame:
@@ -954,16 +989,17 @@ def _parallel_band_ranges() -> list[tuple[str, int, int]]:
     return bands
 
 
-def build_parallel_profile(target_year: int, month: int):
+def build_parallel_profile(target_year: int, month: int, cluster_mode: str = "small"):
     target_year = int(target_year)
     month = int(month)
+    cluster_mode = cluster_mode if cluster_mode in PARALLEL_CLUSTER_MODES else "small"
     mean_temp_years = _parallel_mean_temp_years(target_year)
     target_df = climate_slice(target_year, month)
     source_by_year = {
         year: climate_slice(year, month)
         for year in sorted(set(mean_temp_years + [PARALLEL_BASE_YEAR, target_year]))
     }
-    cluster_lookup = _parallel_cluster_lookup(target_df)
+    cluster_lookup = _parallel_cluster_lookup(target_df, cluster_mode)
     cluster_names = (
         cluster_lookup[["parallel_area_key", "parallel_area_name", "area_name"]]
         .drop_duplicates("parallel_area_key")
@@ -1042,7 +1078,15 @@ def _selected_area_keys(area_map: dict[str, list[str]], selected_ids: list[str] 
     }
 
 
-def parallel_figure(profile, area_map: dict[str, list[str]], selected_ids: list[str] | None, target_year: int, month: int) -> go.Figure:
+def parallel_figure(
+    profile,
+    area_map: dict[str, list[str]],
+    selected_ids: list[str] | None,
+    target_year: int,
+    month: int,
+    cluster_mode: str = "small",
+) -> go.Figure:
+    cluster_mode = cluster_mode if cluster_mode in PARALLEL_CLUSTER_MODES else "small"
     selected_areas = _selected_area_keys(area_map, selected_ids)
     labels = [
         _parallel_axis_label(spec, target_year)
@@ -1157,11 +1201,11 @@ def parallel_figure(profile, area_map: dict[str, list[str]], selected_ids: list[
         },
         dragmode="lasso",
         hovermode="closest",
-        uirevision=f"parallel-{target_year}-{month}",
+        uirevision=f"parallel-{target_year}-{month}-{cluster_mode}",
     )
     fig.add_annotation(
         text=(
-            f"{MONTH_LABELS[int(month)]} profile | {len(profile)} NUTS2-scale regional clusters | "
+            f"{MONTH_LABELS[int(month)]} profile | {len(profile)} {PARALLEL_CLUSTER_MODES[cluster_mode]} | "
             f"mean temperature spans {_parallel_mean_temp_years(target_year)[0]}-"
             f"{_parallel_mean_temp_years(target_year)[-1]} | "
             "temperature axes use C, remaining axes use days"
@@ -1564,12 +1608,17 @@ def render_dashboard(active_time, weights, filters, selected_ids, scatter_x, sca
     Output("parallel-area-map-store", "data"),
     Input("parallel-target-year", "value"),
     Input("parallel-target-month", "value"),
+    Input("parallel-cluster-mode", "value"),
     Input("selected-cells-store", "data"),
 )
-def render_parallel_chart(target_year, target_month, selected_ids):
+def render_parallel_chart(target_year, target_month, cluster_mode, selected_ids):
     selected_ids = selected_ids or []
-    profile, area_map = build_parallel_profile(int(target_year), int(target_month))
-    return parallel_figure(profile, area_map, selected_ids, int(target_year), int(target_month)), area_map
+    cluster_mode = cluster_mode if cluster_mode in PARALLEL_CLUSTER_MODES else "small"
+    profile, area_map = build_parallel_profile(int(target_year), int(target_month), cluster_mode)
+    return (
+        parallel_figure(profile, area_map, selected_ids, int(target_year), int(target_month), cluster_mode),
+        area_map,
+    )
 
 
 def find_available_port(start_port: int) -> int:
