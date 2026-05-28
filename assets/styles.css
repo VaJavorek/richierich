@@ -149,6 +149,8 @@ label {
 .ranking-frame {
   grid-column: 9 / span 4;
   grid-row: 3;
+  min-height: 0;
+  align-self: start;
 }
 
 .parallel-frame {
@@ -312,6 +314,10 @@ h2 {
   min-height: 140px;
 }
 
+.scatter-graph {
+  min-height: 545px;
+}
+
 .optimal-map-graph {
   min-height: 360px;
 }
@@ -322,6 +328,49 @@ h2 {
 .parallel-content {
   display: grid;
   gap: 12px;
+}
+
+.ranking-frame,
+.ranking-frame .frame-body,
+.ranking-card,
+.ranking-content {
+  min-height: 0;
+}
+
+.ranking-card {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100%;
+}
+
+.ranking-content {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.ranking-scroll {
+  min-height: 0;
+  height: clamp(430px, 39vw, 560px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  border: 1px solid rgba(23, 33, 43, 0.08);
+  border-radius: var(--radius);
+  background: rgba(255, 250, 241, 0.38);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(190, 127, 66, 0.7) rgba(248, 234, 210, 0.42);
+}
+
+.ranking-scroll::-webkit-scrollbar {
+  width: 10px;
+}
+
+.ranking-scroll::-webkit-scrollbar-track {
+  background: rgba(248, 234, 210, 0.42);
+}
+
+.ranking-scroll::-webkit-scrollbar-thumb {
+  border: 2px solid rgba(248, 234, 210, 0.42);
+  border-radius: 999px;
+  background: rgba(190, 127, 66, 0.75);
 }
 
 .weight-grid {

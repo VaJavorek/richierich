@@ -168,7 +168,7 @@ DEFAULT_FILTERS = {
     "max_hot_days": 12,
     "max_dry_days": 31,
     "max_tropical_nights": 10,
-    "max_temp_change": 2.6,
+    "min_temp_change": 2.6,
 }
 
 EUROPE_EXTENT = {
@@ -358,7 +358,7 @@ def optimal_candidates(df: pd.DataFrame, filters: dict[str, float] | None = None
         & (df["hot_days"] <= float(filters["max_hot_days"]))
         & (df["dry_days"] <= float(filters["max_dry_days"]))
         & (df["tropical_nights"] <= float(filters["max_tropical_nights"]))
-        & (df["temp_change"] <= float(filters["max_temp_change"]))
+        & (df["temp_change"] >= float(filters.get("min_temp_change", filters.get("max_temp_change", 0))))
     )
     return df[mask].copy()
 

@@ -345,10 +345,14 @@ def make_layout():
                                         ],
                                         className="weight-grid",
                                     ),
-                                    dcc.Graph(id="ranking-chart", config=GRAPH_CONFIG, className="ranking-graph"),
+                                    html.Div(
+                                        dcc.Graph(id="ranking-chart", config=GRAPH_CONFIG, className="ranking-graph"),
+                                        className="ranking-scroll",
+                                    ),
                                 ],
                                 className="ranking-content",
                             ),
+                            "ranking-card",
                             focus_key="ranking-chart",
                         ),
                         "ranking-frame",
@@ -518,9 +522,9 @@ def make_layout():
                                                 show_value_label=False,
                                             ),
                                             slider_value(
-                                                "max-change-filter",
-                                                "Max temp change",
-                                                DEFAULT_FILTERS["max_temp_change"],
+                                                "min-change-filter",
+                                                "Min temp change",
+                                                DEFAULT_FILTERS["min_temp_change"],
                                                 0,
                                                 5,
                                                 0.1,
@@ -972,7 +976,9 @@ def finder_candidates(period_df: pd.DataFrame, filters: dict[str, Any]) -> pd.Da
     max_hot_days = _clamp_day_value(filters.get("max_hot_days"), day_limit)
     max_dry_days = _clamp_day_value(filters.get("max_dry_days"), day_limit)
     max_tropical_nights = _clamp_day_value(filters.get("max_tropical_nights"), day_limit)
-    max_temp_change = float(filters.get("max_temp_change", DEFAULT_FILTERS["max_temp_change"]))
+    min_temp_change = float(
+        filters.get("min_temp_change", filters.get("max_temp_change", DEFAULT_FILTERS["min_temp_change"]))
+    )
 
     mask = (
         (period_df["optimal_days"] >= min_optimal_days)
@@ -980,7 +986,7 @@ def finder_candidates(period_df: pd.DataFrame, filters: dict[str, Any]) -> pd.Da
         & (period_df["hot_days"] <= max_hot_days)
         & (period_df["dry_days"] <= max_dry_days)
         & (period_df["tropical_nights"] <= max_tropical_nights)
-        & (period_df["temp_change"] <= max_temp_change)
+        & (period_df["temp_change"] >= min_temp_change)
     )
     return period_df[mask].copy()
 
@@ -1143,7 +1149,19 @@ def _period_ranking_cell_scores(
     return period
 
 
-def ranking_scores(filters, weights, cluster_mode: str = "small"):
+def _empty_ranking_scores() -> tuple[pd.DataFrame, dict[str, list[str]]]:
+    columns = [
+        "area_key",
+        "area_name",
+        "cell_count",
+        "resort_score",
+        *[component["score"] for component in RANKING_COMPONENTS],
+        *[component["contribution"] for component in RANKING_COMPONENTS],
+    ]
+    return pd.DataFrame(columns=columns), {}
+
+
+def ranking_scores(filters, weights, cluster_mode: str = "small", candidate_ids: set[str] | None = None):
     filters = {**DEFAULT_FILTERS, **(filters or {})}
     weights = {**DEFAULT_WEIGHTS, **(weights or {})}
     cluster_mode = cluster_mode if cluster_mode in PARALLEL_CLUSTER_MODES else "small"
@@ -1157,6 +1175,11 @@ def ranking_scores(filters, weights, cluster_mode: str = "small"):
         temp_min_tenths,
         temp_max_tenths,
     ).copy()
+    if candidate_ids is not None:
+        cell_scores = cell_scores[cell_scores["cell_id"].isin(candidate_ids)].copy()
+        if cell_scores.empty:
+            return _empty_ranking_scores()
+
     cluster_lookup = _parallel_cluster_lookup(cell_scores, cluster_mode)
     area_map = {
         area_key: area_df["cell_id"].tolist()
@@ -1195,11 +1218,37 @@ def ranking_figure(
     weights,
     selected_ids: list[str] | None,
     cluster_mode: str = "small",
+    candidate_ids: set[str] | None = None,
 ) -> tuple[go.Figure, dict[str, list[str]]]:
     cluster_mode = cluster_mode if cluster_mode in PARALLEL_CLUSTER_MODES else "small"
-    ranking, area_map = ranking_scores(filters, weights, cluster_mode)
-    top_count = 13 if cluster_mode == "big" else 12
-    top = ranking.head(top_count).copy().sort_values("resort_score")
+    ranking, area_map = ranking_scores(filters, weights, cluster_mode, candidate_ids)
+    if ranking.empty:
+        fig = go.Figure()
+        fig.add_annotation(
+            text=(
+                "No optimal areas match the current Finder filters.<br>"
+                "Relax the Optimal Area Finder limits to compare candidate clusters here."
+            ),
+            x=0.5,
+            y=0.54,
+            xref="paper",
+            yref="paper",
+            showarrow=False,
+            align="center",
+            font={"size": 13, "color": MUTED},
+        )
+        fig.update_layout(
+            height=350,
+            margin={"l": 24, "r": 24, "t": 34, "b": 34},
+            paper_bgcolor=PAPER_BG,
+            plot_bgcolor=PAPER_BG,
+            font={"family": "Inter, Segoe UI, Arial, sans-serif", "color": INK},
+            xaxis={"visible": False},
+            yaxis={"visible": False},
+        )
+        return fig, area_map
+
+    top = ranking.head(100).copy().sort_values("resort_score")
     selected_areas = _selected_area_keys(area_map, selected_ids)
     selected_indices = [index for index, area_key in enumerate(top["area_key"]) if area_key in selected_areas]
     fig = go.Figure()
@@ -1240,16 +1289,18 @@ def ranking_figure(
             )
         )
 
+    figure_height = max(520, 136 + len(top) * 22)
+    left_margin = 158 if cluster_mode == "small" else 142
     fig.update_layout(
-        height=350,
-        margin={"l": 142, "r": 24, "t": 34, "b": 34},
+        height=figure_height,
+        margin={"l": left_margin, "r": 24, "t": 74, "b": 46},
         paper_bgcolor=PAPER_BG,
         plot_bgcolor=PAPER_BG,
         font={"family": "Inter, Segoe UI, Arial, sans-serif", "color": INK},
         xaxis={"range": [0, 100], "title": "Resort opportunity score", "gridcolor": "rgba(23,33,43,0.09)"},
-        yaxis={"title": "", "tickfont": {"size": 11}},
+        yaxis={"title": "", "tickfont": {"size": 10}},
         barmode="stack",
-        bargap=0.3,
+        bargap=0.22,
         dragmode="select",
         legend={
             "orientation": "h",
@@ -1618,9 +1669,9 @@ def scatter_figure(df, x_var: str, y_var: str, selected_ids: list[str] | None, w
         )
     )
     fig.update_layout(
-        height=650,
+        height=545,
         dragmode="lasso",
-        margin={"l": 62, "r": 12, "t": 8, "b": 58},
+        margin={"l": 62, "r": 12, "t": 8, "b": 52},
         paper_bgcolor=PAPER_BG,
         plot_bgcolor=PAPER_BG,
         font={"family": "Inter, Segoe UI, Arial, sans-serif", "color": INK},
@@ -1832,7 +1883,7 @@ def update_finder_day_slider_bounds(target_month, min_optimal, max_mosquito, max
     Output("max-hot-filter-label", "children"),
     Output("max-dry-filter-label", "children"),
     Output("max-tropical-filter-label", "children"),
-    Output("max-change-filter-label", "children"),
+    Output("min-change-filter-label", "children"),
     Input("target-year-filter", "value"),
     Input("target-month-filter", "value"),
     Input("temp-range-filter", "value"),
@@ -1841,7 +1892,7 @@ def update_finder_day_slider_bounds(target_month, min_optimal, max_mosquito, max
     Input("max-hot-filter", "value"),
     Input("max-dry-filter", "value"),
     Input("max-tropical-filter", "value"),
-    Input("max-change-filter", "value"),
+    Input("min-change-filter", "value"),
 )
 def update_optimal_filters(
     target_year,
@@ -1852,7 +1903,7 @@ def update_optimal_filters(
     max_hot,
     max_dry,
     max_tropical,
-    max_change,
+    min_change,
 ):
     target_month = _normalize_finder_month(target_month)
     day_limit = _finder_day_limit(target_month)
@@ -1871,7 +1922,7 @@ def update_optimal_filters(
         "max_hot_days": float(max_hot),
         "max_dry_days": float(max_dry),
         "max_tropical_nights": float(max_tropical),
-        "max_temp_change": float(max_change),
+        "min_temp_change": float(min_change),
     }
     return (
         filters,
@@ -1880,7 +1931,7 @@ def update_optimal_filters(
         f"{max_hot:.0f}",
         f"{max_dry:.0f}",
         f"{max_tropical:.0f}",
-        f"{max_change:.1f} deg C",
+        f"{min_change:.1f} deg C",
     )
 
 
@@ -2003,12 +2054,13 @@ def render_dashboard(active_time, weights, filters, selected_ids, scatter_x, sca
         int(round(float(filters["temp_max"]) * 10)),
     )
     candidates = finder_candidates(finder_df, filters)
+    candidate_ids = set(candidates["cell_id"])
     candidate_label = (
         f"{len(candidates):,} matching cells | "
         f"{_finder_period_label(int(filters['target_year']), finder_month)} | "
         f">= {int(filters['min_optimal_days'])} estimated optimal days"
     )
-    ranking_fig, ranking_area_map = ranking_figure(filters, weights, selected_ids, cluster_mode)
+    ranking_fig, ranking_area_map = ranking_figure(filters, weights, selected_ids, cluster_mode, candidate_ids)
 
     return (
         map_figure(df, "mean_temp", selected_ids, title_suffix=time_label, auto_range=True, marker_opacity=0.65),

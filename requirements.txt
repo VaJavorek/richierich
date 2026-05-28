@@ -1,11 +1,16 @@
+# Dash app and interactive charts
 dash>=2.17
 plotly>=5.22
+
+# Data frames and fast local cache files
 numpy>=1.26
 pandas>=2.2
+pyarrow>=15.0
+
+# Copernicus NetCDF/xarray stack
 xarray>=2024.6
+dask>=2024.6
 netCDF4>=1.6
 h5netcdf>=1.3
 h5py>=3.10
-dask>=2024.6
 cftime>=1.6
-pyarrow>=15.0
