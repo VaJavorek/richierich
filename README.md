@@ -10,7 +10,7 @@ The app reads Copernicus climate indicator NetCDF files from a sibling `../data/
 - Linked mini maps for mosquito season, heat risk, and dryness risk.
 - Shared year/month controls.
 - Weighted custom ranking chart with stacked opportunity-score components.
-- Optimal Area Finder with one-month or all-year climate limits and minimum optimal-day thresholds.
+- Optimal Area Finder with one-month or all-year climate limits and minimum estimated optimal-day thresholds.
 - Parallel coordinates-style climate profile chart.
 - Scatterplot for variable-pair correlation scouting.
 - Shared selection state across maps, ranking, scatterplot, and parallel chart.

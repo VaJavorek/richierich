@@ -23,6 +23,7 @@ YEAR_MAX = 2100
 DEFAULT_YEAR = 2070
 DEFAULT_MONTH = 7
 DEFAULT_MAX_CELLS = 20_000
+CACHE_VERSION = "copernicus_v2"
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 CACHE_DIR = Path(__file__).resolve().parent / ".climate_cache"
@@ -142,6 +143,13 @@ ANALYSIS_VARIABLES = [
     "temp_change",
 ]
 
+SUPPORT_VARIABLES = [
+    "daily_max_min",
+    "daily_max_max",
+    "daily_min_min",
+    "daily_min_max",
+]
+
 DEFAULT_WEIGHTS = {
     "temperature": 40,
     "mosquito": 10,
@@ -201,8 +209,32 @@ SOURCE_SPECS = {
         "frequency": "monthly",
         "temperature": True,
     },
+    "daily_max_min": {
+        "filename": "l1_daily_maximum_temperature-projections-monthly-min-rcp_8_5-cclm4_8_17-mpi_esm_lr-r1i1p1-grid-v2.0.nc",
+        "var": "daily_maximum_temperature",
+        "frequency": "monthly",
+        "temperature": True,
+    },
+    "daily_max_max": {
+        "filename": "l1_daily_maximum_temperature-projections-monthly-max-rcp_8_5-cclm4_8_17-mpi_esm_lr-r1i1p1-grid-v2.0.nc",
+        "var": "daily_maximum_temperature",
+        "frequency": "monthly",
+        "temperature": True,
+    },
     "daily_min_mean": {
         "filename": "l2_daily_minimum_temperature-projections-monthly-mean-rcp_8_5-cclm4_8_17-mpi_esm_lr-r1i1p1-grid-v2.0.nc",
+        "var": "daily_minimum_temperature",
+        "frequency": "monthly",
+        "temperature": True,
+    },
+    "daily_min_min": {
+        "filename": "l2_daily_minimum_temperature-projections-monthly-min-rcp_8_5-cclm4_8_17-mpi_esm_lr-r1i1p1-grid-v2.0.nc",
+        "var": "daily_minimum_temperature",
+        "frequency": "monthly",
+        "temperature": True,
+    },
+    "daily_min_max": {
+        "filename": "l2_daily_minimum_temperature-projections-monthly-max-rcp_8_5-cclm4_8_17-mpi_esm_lr-r1i1p1-grid-v2.0.nc",
         "var": "daily_minimum_temperature",
         "frequency": "monthly",
         "temperature": True,
@@ -254,7 +286,11 @@ def climate_slice(year: int, month: int) -> pd.DataFrame:
     for key in [
         "mean_temp",
         "daily_max_mean",
+        "daily_max_min",
+        "daily_max_max",
         "daily_min_mean",
+        "daily_min_min",
+        "daily_min_max",
         "hot_days",
         "tropical_nights",
         "dry_days",
@@ -270,9 +306,9 @@ def climate_slice(year: int, month: int) -> pd.DataFrame:
     grid["month"] = month
     grid["season_label"] = f"{MONTH_LABELS[month]} {year}"
 
-    numeric_columns = ANALYSIS_VARIABLES + ["lat", "lon"]
+    numeric_columns = ANALYSIS_VARIABLES + SUPPORT_VARIABLES + ["lat", "lon"]
     grid[numeric_columns] = grid[numeric_columns].round(2)
-    grid = grid.dropna(subset=ANALYSIS_VARIABLES).reset_index(drop=True)
+    grid = grid.dropna(subset=ANALYSIS_VARIABLES + SUPPORT_VARIABLES).reset_index(drop=True)
 
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     grid.to_parquet(cache_file, index=False)
@@ -354,7 +390,7 @@ def _max_cells() -> int:
 
 
 def _cache_path(year: int, month: int, max_cells: int) -> Path:
-    return CACHE_DIR / f"copernicus_v1_y{year}_m{month:02d}_n{max_cells}.parquet"
+    return CACHE_DIR / f"{CACHE_VERSION}_y{year}_m{month:02d}_n{max_cells}.parquet"
 
 
 def _dataset_path(key: str) -> Path:

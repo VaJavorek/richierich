@@ -91,7 +91,7 @@ RANKING_COMPONENTS = [
         "score": "optimal_temperature_score",
         "contribution": "optimal_temperature_weighted",
         "weight": "temperature",
-        "label": "Optimal temperature days",
+        "label": "Estimated optimal temperature days",
         "color": COLOR_OPTIMAL_DAYS,
     },
     {
@@ -333,7 +333,7 @@ def make_layout():
                                         [
                                             slider_value(
                                                 "weight-temperature",
-                                                "Optimal temp days",
+                                                "Est. optimal temp days",
                                                 DEFAULT_WEIGHTS["temperature"],
                                                 0,
                                                 50,
@@ -474,7 +474,7 @@ def make_layout():
                                             ),
                                             slider_value(
                                                 "min-optimal-days-filter",
-                                                "Min optimal days",
+                                                "Min estimated optimal days",
                                                 DEFAULT_FILTERS["min_optimal_days"],
                                                 1,
                                                 MONTH_DAY_LIMIT,
@@ -845,6 +845,21 @@ def _clamp_day_value(value, limit: int) -> int:
     return int(np.clip(numeric, 1, limit))
 
 
+def _estimated_optimal_days(month_df: pd.DataFrame, month_days: int, temp_min: float, temp_max: float) -> np.ndarray:
+    daily_mean_low = (month_df["daily_min_min"] + month_df["daily_max_min"]) / 2
+    daily_mean_high = (month_df["daily_min_max"] + month_df["daily_max_max"]) / 2
+    range_low = np.minimum(daily_mean_low, daily_mean_high)
+    range_high = np.maximum(daily_mean_low, daily_mean_high)
+    range_width = range_high - range_low
+    overlap = np.minimum(range_high, temp_max) - np.maximum(range_low, temp_min)
+    overlap_ratio = np.zeros(len(month_df), dtype=float)
+    nonzero = range_width > 0
+    overlap_ratio[nonzero] = np.clip(overlap[nonzero] / range_width[nonzero], 0, 1)
+    point_inside = (~nonzero) & (range_low >= temp_min) & (range_low <= temp_max)
+    overlap_ratio[point_inside] = 1
+    return np.clip(np.rint(overlap_ratio * month_days), 0, month_days)
+
+
 @lru_cache(maxsize=128)
 def finder_period_summary(
     target_year: int,
@@ -868,6 +883,10 @@ def finder_period_summary(
                 "lat",
                 "lon",
                 "mean_temp",
+                "daily_max_min",
+                "daily_max_max",
+                "daily_min_min",
+                "daily_min_max",
                 "hot_days",
                 "dry_days",
                 "tropical_nights",
@@ -875,11 +894,11 @@ def finder_period_summary(
                 "temp_change",
             ]
         ].copy()
-        month_df["optimal_days"] = np.where(
-            month_df["mean_temp"].between(temp_min, temp_max),
-            month_days,
-            0,
-        )
+        daily_mean_low = (month_df["daily_min_min"] + month_df["daily_max_min"]) / 2
+        daily_mean_high = (month_df["daily_min_max"] + month_df["daily_max_max"]) / 2
+        month_df["estimated_daily_mean_low"] = np.minimum(daily_mean_low, daily_mean_high)
+        month_df["estimated_daily_mean_high"] = np.maximum(daily_mean_low, daily_mean_high)
+        month_df["optimal_days"] = _estimated_optimal_days(month_df, month_days, temp_min, temp_max)
         month_df["weighted_mean_temp"] = month_df["mean_temp"] * month_days
         month_df["weighted_temp_change"] = month_df["temp_change"] * month_days
         month_df["period_days"] = month_days
@@ -899,6 +918,8 @@ def finder_period_summary(
                     "dry_days": "sum",
                     "tropical_nights": "sum",
                     "mosquito_days": "max",
+                    "estimated_daily_mean_low": "min",
+                    "estimated_daily_mean_high": "max",
                     "weighted_mean_temp": "sum",
                     "weighted_temp_change": "sum",
                 }
@@ -918,6 +939,8 @@ def finder_period_summary(
             "lat",
             "lon",
             "mean_temp",
+            "estimated_daily_mean_low",
+            "estimated_daily_mean_high",
             "optimal_days",
             "hot_days",
             "dry_days",
@@ -930,6 +953,8 @@ def finder_period_summary(
     ].round(
         {
             "mean_temp": 2,
+            "estimated_daily_mean_low": 2,
+            "estimated_daily_mean_high": 2,
             "optimal_days": 0,
             "hot_days": 0,
             "dry_days": 0,
@@ -981,11 +1006,12 @@ def optimal_map_figure(
                 "color": "rgba(102,119,130,0.22)",
                 "line": {"width": 0},
             },
-            customdata=period_df[["cell_id", "area_name", "optimal_days"]],
+            customdata=period_df[["cell_id", "area_name", "optimal_days", "estimated_daily_mean_low", "estimated_daily_mean_high"]],
             hovertemplate=(
                 "<b>%{customdata[1]}</b><br>"
                 "Cell %{customdata[0]}<br>"
-                "Optimal days: %{customdata[2]:.0f}<extra></extra>"
+                "Estimated optimal days: %{customdata[2]:.0f}<br>"
+                "Estimated daily mean range: %{customdata[3]:.1f}-%{customdata[4]:.1f} deg C<extra></extra>"
             ),
             name="All cells",
         )
@@ -1005,7 +1031,7 @@ def optimal_map_figure(
                     "cmin": 0,
                     "cmax": day_limit,
                     "line": {"width": 1.2, "color": "#fff7d6"},
-                    "colorbar": {"title": "Optimal days", "len": 0.58, "thickness": 10},
+                    "colorbar": {"title": "Est. optimal days", "len": 0.58, "thickness": 10},
                 },
                 customdata=candidates[
                     [
@@ -1013,6 +1039,8 @@ def optimal_map_figure(
                         "area_name",
                         "optimal_days",
                         "mean_temp",
+                        "estimated_daily_mean_low",
+                        "estimated_daily_mean_high",
                         "mosquito_days",
                         "hot_days",
                         "dry_days",
@@ -1023,13 +1051,14 @@ def optimal_map_figure(
                 hovertemplate=(
                     "<b>%{customdata[1]}</b><br>"
                     "Candidate %{customdata[0]}<br>"
-                    "Optimal days: %{customdata[2]:.0f}<br>"
+                    "Estimated optimal days: %{customdata[2]:.0f}<br>"
                     "Mean temp: %{customdata[3]:.2f} deg C<br>"
-                    "Mosquito days: %{customdata[4]:.0f}<br>"
-                    "Hot days: %{customdata[5]:.0f}<br>"
-                    "Dry days: %{customdata[6]:.0f}<br>"
-                    "Tropical nights: %{customdata[7]:.0f}<br>"
-                    "Temp change: %{customdata[8]:.2f} deg C<extra></extra>"
+                    "Estimated daily mean range: %{customdata[4]:.1f}-%{customdata[5]:.1f} deg C<br>"
+                    "Mosquito days: %{customdata[6]:.0f}<br>"
+                    "Hot days: %{customdata[7]:.0f}<br>"
+                    "Dry days: %{customdata[8]:.0f}<br>"
+                    "Tropical nights: %{customdata[9]:.0f}<br>"
+                    "Temp change: %{customdata[10]:.2f} deg C<extra></extra>"
                 ),
                 name="Matching cells",
             )
@@ -1049,11 +1078,12 @@ def optimal_map_figure(
                     "line": {"width": 2.2, "color": INK},
                     "opacity": 0.95,
                 },
-                customdata=selected_df[["cell_id", "area_name", "optimal_days"]],
+                customdata=selected_df[["cell_id", "area_name", "optimal_days", "estimated_daily_mean_low", "estimated_daily_mean_high"]],
                 hovertemplate=(
                     "<b>Selected %{customdata[1]}</b><br>"
                     "Cell %{customdata[0]}<br>"
-                    "Optimal days: %{customdata[2]:.0f}<extra></extra>"
+                    "Estimated optimal days: %{customdata[2]:.0f}<br>"
+                    "Estimated daily mean range: %{customdata[3]:.1f}-%{customdata[4]:.1f} deg C<extra></extra>"
                 ),
                 name="Selected",
             )
@@ -1976,7 +2006,7 @@ def render_dashboard(active_time, weights, filters, selected_ids, scatter_x, sca
     candidate_label = (
         f"{len(candidates):,} matching cells | "
         f"{_finder_period_label(int(filters['target_year']), finder_month)} | "
-        f">= {int(filters['min_optimal_days'])} optimal days"
+        f">= {int(filters['min_optimal_days'])} estimated optimal days"
     )
     ranking_fig, ranking_area_map = ranking_figure(filters, weights, selected_ids, cluster_mode)
 
