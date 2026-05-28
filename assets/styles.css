@@ -148,7 +148,7 @@ label {
 
 .ranking-frame {
   grid-column: 9 / span 4;
-  grid-row: 1;
+  grid-row: 3;
 }
 
 .parallel-frame {
@@ -163,7 +163,7 @@ label {
 
 .scatter-frame {
   grid-column: 9 / span 4;
-  grid-row: 3;
+  grid-row: 1;
 }
 
 .maps-frame-grid {

@@ -80,41 +80,47 @@ AREA_LINE_COLORS = [
     "#5d7f52",
 ]
 
+COLOR_OPTIMAL_DAYS = "#f4d35e"
+COLOR_HEAT = "#de2d26"
+COLOR_DRYNESS = "#8b9299"
+COLOR_MOSQUITO = "#815ac0"
+COLOR_TROPICAL_NIGHTS = "#d85c9f"
+
 RANKING_COMPONENTS = [
     {
         "score": "optimal_temperature_score",
         "contribution": "optimal_temperature_weighted",
         "weight": "temperature",
         "label": "Optimal temperature days",
-        "color": "#f4d35e",
+        "color": COLOR_OPTIMAL_DAYS,
     },
     {
         "score": "low_heat_score",
         "contribution": "low_heat_weighted",
         "weight": "heat",
         "label": "Low heat risk",
-        "color": "#de2d26",
+        "color": COLOR_HEAT,
     },
     {
         "score": "low_dryness_score",
         "contribution": "low_dryness_weighted",
         "weight": "dryness",
         "label": "Low dry risk",
-        "color": "#8b9299",
+        "color": COLOR_DRYNESS,
     },
     {
         "score": "low_mosquito_score",
         "contribution": "low_mosquito_weighted",
         "weight": "mosquito",
         "label": "Low mosquito risk",
-        "color": "#2f8fce",
+        "color": COLOR_MOSQUITO,
     },
     {
         "score": "low_tropical_night_score",
         "contribution": "low_tropical_night_weighted",
         "weight": "nights",
         "label": "Low tropical night risk",
-        "color": "#815ac0",
+        "color": COLOR_TROPICAL_NIGHTS,
     },
 ]
 
@@ -320,7 +326,7 @@ def make_layout():
                         "Custom ranking",
                         card(
                             "Custom ranking",
-                            "Weighted annual score across climate opportunity components.",
+                            "Weighted score for the Finder period, grouped by the selected parallel-coordinate cluster size.",
                             html.Div(
                                 [
                                     html.Div(
@@ -1071,70 +1077,57 @@ def optimal_map_figure(
     return fig
 
 
-@lru_cache(maxsize=96)
-def _annual_ranking_cell_scores(target_year: int, temp_min_tenths: int, temp_max_tenths: int) -> pd.DataFrame:
+@lru_cache(maxsize=192)
+def _period_ranking_cell_scores(
+    target_year: int,
+    target_month,
+    temp_min_tenths: int,
+    temp_max_tenths: int,
+) -> pd.DataFrame:
     target_year = int(target_year)
-    temp_min = temp_min_tenths / 10
-    temp_max = temp_max_tenths / 10
-    days_in_year = sum(calendar.monthrange(target_year, month)[1] for month in MONTH_LABELS)
-
-    monthly_rows = []
-    for month in MONTH_LABELS:
-        month_days = calendar.monthrange(target_year, month)[1]
-        month_df = climate_slice(target_year, month)[
-            [
-                "cell_id",
-                "area_name",
-                "lat",
-                "lon",
-                "mean_temp",
-                "hot_days",
-                "dry_days",
-                "tropical_nights",
-                "mosquito_days",
-            ]
-        ].copy()
-        month_df["optimal_temperature_days"] = np.where(
-            month_df["mean_temp"].between(temp_min, temp_max),
-            month_days,
-            0,
-        )
-        monthly_rows.append(month_df)
-
-    yearly = (
-        pd.concat(monthly_rows, ignore_index=True)
-        .groupby(["cell_id", "area_name", "lat", "lon"], as_index=False)
-        .agg(
-            {
-                "optimal_temperature_days": "sum",
-                "hot_days": "sum",
-                "dry_days": "sum",
-                "tropical_nights": "sum",
-                "mosquito_days": "max",
-            }
-        )
+    target_month = _normalize_finder_month(target_month)
+    period = finder_period_summary(
+        target_year,
+        target_month,
+        int(temp_min_tenths),
+        int(temp_max_tenths),
+    ).copy()
+    score_days = min(
+        float(period["period_days"].iloc[0]),
+        float(period["period_day_limit"].iloc[0]),
     )
-    yearly["hot_days"] = yearly["hot_days"].clip(upper=days_in_year)
-    yearly["dry_days"] = yearly["dry_days"].clip(upper=days_in_year)
-    yearly["tropical_nights"] = yearly["tropical_nights"].clip(upper=days_in_year)
-    yearly["mosquito_days"] = yearly["mosquito_days"].clip(upper=days_in_year)
+    score_days = max(score_days, 1.0)
+    period["optimal_temperature_days"] = period["optimal_days"].clip(upper=score_days)
+    period["hot_days"] = period["hot_days"].clip(upper=score_days)
+    period["dry_days"] = period["dry_days"].clip(upper=score_days)
+    period["tropical_nights"] = period["tropical_nights"].clip(upper=score_days)
+    period["mosquito_days"] = period["mosquito_days"].clip(upper=score_days)
 
-    yearly["optimal_temperature_score"] = yearly["optimal_temperature_days"] / days_in_year * 100
-    yearly["low_mosquito_score"] = (days_in_year - yearly["mosquito_days"]) / days_in_year * 100
-    yearly["low_dryness_score"] = (days_in_year - yearly["dry_days"]) / days_in_year * 100
-    yearly["low_heat_score"] = (days_in_year - yearly["hot_days"]) / days_in_year * 100
-    yearly["low_tropical_night_score"] = (days_in_year - yearly["tropical_nights"]) / days_in_year * 100
-    return yearly
+    period["optimal_temperature_score"] = (period["optimal_temperature_days"] / score_days * 100).clip(0, 100)
+    period["low_mosquito_score"] = ((score_days - period["mosquito_days"]) / score_days * 100).clip(0, 100)
+    period["low_dryness_score"] = ((score_days - period["dry_days"]) / score_days * 100).clip(0, 100)
+    period["low_heat_score"] = ((score_days - period["hot_days"]) / score_days * 100).clip(0, 100)
+    period["low_tropical_night_score"] = (
+        (score_days - period["tropical_nights"]) / score_days * 100
+    ).clip(0, 100)
+    return period
 
 
-def ranking_scores(filters, weights):
+def ranking_scores(filters, weights, cluster_mode: str = "small"):
     filters = {**DEFAULT_FILTERS, **(filters or {})}
     weights = {**DEFAULT_WEIGHTS, **(weights or {})}
+    cluster_mode = cluster_mode if cluster_mode in PARALLEL_CLUSTER_MODES else "small"
     target_year = int(filters["target_year"])
+    target_month = _normalize_finder_month(filters["target_month"])
     temp_min_tenths = int(round(float(filters["temp_min"]) * 10))
     temp_max_tenths = int(round(float(filters["temp_max"]) * 10))
-    cell_scores = _annual_ranking_cell_scores(target_year, temp_min_tenths, temp_max_tenths).copy()
-    cluster_lookup = _parallel_cluster_lookup(cell_scores)
+    cell_scores = _period_ranking_cell_scores(
+        target_year,
+        target_month,
+        temp_min_tenths,
+        temp_max_tenths,
+    ).copy()
+    cluster_lookup = _parallel_cluster_lookup(cell_scores, cluster_mode)
     area_map = {
         area_key: area_df["cell_id"].tolist()
         for area_key, area_df in cluster_lookup.groupby("parallel_area_key", sort=True)
@@ -1167,9 +1160,16 @@ def ranking_scores(filters, weights):
     return grouped.sort_values("resort_score", ascending=False).reset_index(drop=True), area_map
 
 
-def ranking_figure(filters, weights, selected_ids: list[str] | None) -> tuple[go.Figure, dict[str, list[str]]]:
-    ranking, area_map = ranking_scores(filters, weights)
-    top = ranking.head(12).copy().sort_values("resort_score")
+def ranking_figure(
+    filters,
+    weights,
+    selected_ids: list[str] | None,
+    cluster_mode: str = "small",
+) -> tuple[go.Figure, dict[str, list[str]]]:
+    cluster_mode = cluster_mode if cluster_mode in PARALLEL_CLUSTER_MODES else "small"
+    ranking, area_map = ranking_scores(filters, weights, cluster_mode)
+    top_count = 13 if cluster_mode == "big" else 12
+    top = ranking.head(top_count).copy().sort_values("resort_score")
     selected_areas = _selected_area_keys(area_map, selected_ids)
     selected_indices = [index for index, area_key in enumerate(top["area_key"]) if area_key in selected_areas]
     fig = go.Figure()
@@ -1954,12 +1954,14 @@ def update_selection(
     Input("selected-cells-store", "data"),
     Input("scatter-x", "value"),
     Input("scatter-y", "value"),
+    Input("parallel-cluster-mode", "value"),
 )
-def render_dashboard(active_time, weights, filters, selected_ids, scatter_x, scatter_y):
+def render_dashboard(active_time, weights, filters, selected_ids, scatter_x, scatter_y, cluster_mode):
     active_time = active_time or {"year": DEFAULT_YEAR, "month": DEFAULT_MONTH}
     weights = weights or DEFAULT_WEIGHTS
     filters = {**DEFAULT_FILTERS, **(filters or {})}
     selected_ids = selected_ids or []
+    cluster_mode = cluster_mode if cluster_mode in PARALLEL_CLUSTER_MODES else "small"
 
     df = climate_slice(active_time["year"], active_time["month"])
     time_label = f"{MONTH_LABELS[int(active_time['month'])]} {int(active_time['year'])}"
@@ -1976,7 +1978,7 @@ def render_dashboard(active_time, weights, filters, selected_ids, scatter_x, sca
         f"{_finder_period_label(int(filters['target_year']), finder_month)} | "
         f">= {int(filters['min_optimal_days'])} optimal days"
     )
-    ranking_fig, ranking_area_map = ranking_figure(filters, weights, selected_ids)
+    ranking_fig, ranking_area_map = ranking_figure(filters, weights, selected_ids, cluster_mode)
 
     return (
         map_figure(df, "mean_temp", selected_ids, title_suffix=time_label, auto_range=True, marker_opacity=0.65),

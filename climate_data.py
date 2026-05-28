@@ -59,10 +59,9 @@ VARIABLES = {
         "label": "Mosquito season",
         "unit": "days/year",
         "colorscale": [
-            [0.0, "#f3e8ff"],
-            [0.35, "#d8b4fe"],
-            [0.7, "#9333ea"],
-            [1.0, "#4c1d95"],
+            [0.0, "#f6efff"],
+            [0.5, "#c9b3e6"],
+            [1.0, "#815ac0"],
         ],
         "range": (0, 210),
     },
@@ -81,7 +80,11 @@ VARIABLES = {
     "tropical_nights": {
         "label": "Tropical nights",
         "unit": "nights/month",
-        "colorscale": "Magma",
+        "colorscale": [
+            [0.0, "#fff0f6"],
+            [0.5, "#f768a1"],
+            [1.0, "#d85c9f"],
+        ],
         "range": (0, 31),
     },
     "daily_max_mean": {
@@ -141,10 +144,10 @@ ANALYSIS_VARIABLES = [
 
 DEFAULT_WEIGHTS = {
     "temperature": 40,
-    "mosquito": 20,
-    "heat": 20,
-    "dryness": 20,
-    "nights": 20,
+    "mosquito": 10,
+    "heat": 10,
+    "dryness": 10,
+    "nights": 10,
 }
 
 DEFAULT_FILTERS = {
