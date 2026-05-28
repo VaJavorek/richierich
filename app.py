@@ -23,7 +23,6 @@ from climate_data import (
     YEAR_MIN,
     climate_slice,
     month_marks,
-    optimal_candidates,
     score_candidates,
     variable_options,
     year_marks,
@@ -130,6 +129,23 @@ FOCUS_CHARTS = {
     "scatter-chart": "Correlation scout",
 }
 
+ALL_YEAR_VALUE = "all"
+MONTH_DAY_LIMIT = 31
+YEAR_DAY_LIMIT = 365
+OPTIMAL_DAYS_COLORSCALE = [
+    [0.0, "#fff7bc"],
+    [0.35, "#fec44f"],
+    [0.72, "#fe9929"],
+    [1.0, "#cc4c02"],
+]
+
+
+def finder_month_options() -> list[dict[str, int | str]]:
+    return [{"label": "All year", "value": ALL_YEAR_VALUE}] + [
+        {"label": label, "value": month}
+        for month, label in MONTH_LABELS.items()
+    ]
+
 
 def card(title: str, subtitle: str, children, class_name: str = "", focus_key: str | None = None):
     header_children = [
@@ -157,20 +173,30 @@ def card(title: str, subtitle: str, children, class_name: str = "", focus_key: s
     )
 
 
-def frame(title: str, children, class_name: str = ""):
+def frame(title: str, children, class_name: str = "", show_title: bool = True):
+    content = []
+    if show_title:
+        content.append(html.Div(title, className="frame-title"))
+    content.append(html.Div(children, className="frame-body"))
     return html.Section(
-        [
-            html.Div(title, className="frame-title"),
-            html.Div(children, className="frame-body"),
-        ],
+        content,
         className=f"frame {class_name}".strip(),
     )
 
 
-def slider_value(id_: str, label: str, value: float, minimum: float, maximum: float, step: float = 1):
+def slider_value(
+    id_: str,
+    label: str,
+    value: float,
+    minimum: float,
+    maximum: float,
+    step: float = 1,
+    show_value_label: bool = True,
+):
+    value_class = "slider-value" if show_value_label else "slider-value is-hidden"
     return html.Div(
         [
-            html.Div([html.Span(label), html.Strong(id=f"{id_}-label")], className="slider-label"),
+            html.Div([html.Span(label), html.Strong(id=f"{id_}-label", className=value_class)], className="slider-label"),
             dcc.Slider(
                 id=id_,
                 min=minimum,
@@ -320,6 +346,7 @@ def make_layout():
                             focus_key="ranking-chart",
                         ),
                         "ranking-frame",
+                        show_title=False,
                     ),
                     frame(
                         "Parallel coordinate chart",
@@ -387,12 +414,13 @@ def make_layout():
                             focus_key="parallel-chart",
                         ),
                         "parallel-frame",
+                        show_title=False,
                     ),
                     frame(
                         "Optimal Area Finder",
                         card(
                             "Optimal Area Finder",
-                            "Highlight places matching the investor's climate limits.",
+                            "Use custom climate limits to find European resort cells with enough comfortable days and manageable heat, drought, nights, and mosquito exposure.",
                             html.Div(
                                 [
                                     html.Div(
@@ -417,10 +445,7 @@ def make_layout():
                                                     html.Label("Target month"),
                                                     dcc.Dropdown(
                                                         id="target-month-filter",
-                                                        options=[
-                                                            {"label": label, "value": month}
-                                                            for month, label in MONTH_LABELS.items()
-                                                        ],
+                                                        options=finder_month_options(),
                                                         value=DEFAULT_FILTERS["target_month"],
                                                         clearable=False,
                                                     ),
@@ -442,22 +467,49 @@ def make_layout():
                                                 className="wide-control",
                                             ),
                                             slider_value(
+                                                "min-optimal-days-filter",
+                                                "Min optimal days",
+                                                DEFAULT_FILTERS["min_optimal_days"],
+                                                1,
+                                                MONTH_DAY_LIMIT,
+                                                1,
+                                                show_value_label=False,
+                                            ),
+                                            slider_value(
                                                 "max-mosquito-filter",
                                                 "Max mosquito days",
                                                 DEFAULT_FILTERS["max_mosquito"],
-                                                0,
-                                                210,
-                                                5,
+                                                1,
+                                                MONTH_DAY_LIMIT,
+                                                1,
+                                                show_value_label=False,
                                             ),
-                                            slider_value("max-hot-filter", "Max hot days", DEFAULT_FILTERS["max_hot_days"], 0, 31, 1),
-                                            slider_value("max-dry-filter", "Max dry days", DEFAULT_FILTERS["max_dry_days"], 0, 65, 1),
+                                            slider_value(
+                                                "max-hot-filter",
+                                                "Max hot days",
+                                                DEFAULT_FILTERS["max_hot_days"],
+                                                1,
+                                                MONTH_DAY_LIMIT,
+                                                1,
+                                                show_value_label=False,
+                                            ),
+                                            slider_value(
+                                                "max-dry-filter",
+                                                "Max dry days",
+                                                DEFAULT_FILTERS["max_dry_days"],
+                                                1,
+                                                MONTH_DAY_LIMIT,
+                                                1,
+                                                show_value_label=False,
+                                            ),
                                             slider_value(
                                                 "max-tropical-filter",
                                                 "Max tropical nights",
                                                 DEFAULT_FILTERS["max_tropical_nights"],
-                                                0,
-                                                31,
                                                 1,
+                                                MONTH_DAY_LIMIT,
+                                                1,
+                                                show_value_label=False,
                                             ),
                                             slider_value(
                                                 "max-change-filter",
@@ -466,6 +518,7 @@ def make_layout():
                                                 0,
                                                 5,
                                                 0.1,
+                                                show_value_label=False,
                                             ),
                                         ],
                                         className="finder-controls",
@@ -478,6 +531,7 @@ def make_layout():
                             focus_key="optimal-map",
                         ),
                         "finder-frame",
+                        show_title=False,
                     ),
                     frame(
                         "Correlation scout",
@@ -523,6 +577,7 @@ def make_layout():
                             focus_key="scatter-chart",
                         ),
                         "scatter-frame",
+                        show_title=False,
                     ),
                     html.Aside(
                         [
@@ -735,6 +790,270 @@ def map_figure(
     fig = geo_layout(fig, height=figure_height, compact=compact)
     if show_risk_colorbar:
         fig.update_layout(margin={"l": 0, "r": 46, "t": 0, "b": 0})
+    if title_suffix:
+        fig.add_annotation(
+            text=title_suffix,
+            x=0.01,
+            y=0.99,
+            xref="paper",
+            yref="paper",
+            showarrow=False,
+            align="left",
+            font={"size": 12, "color": MUTED},
+            bgcolor="rgba(255,250,241,0.85)",
+            bordercolor="rgba(23,33,43,0.08)",
+            borderpad=5,
+        )
+    return fig
+
+
+def _normalize_finder_month(value) -> int | str:
+    if value == ALL_YEAR_VALUE:
+        return ALL_YEAR_VALUE
+    return int(value)
+
+
+def _finder_months(value) -> list[int]:
+    month = _normalize_finder_month(value)
+    if month == ALL_YEAR_VALUE:
+        return list(MONTH_LABELS)
+    return [int(month)]
+
+
+def _finder_day_limit(value) -> int:
+    return YEAR_DAY_LIMIT if _normalize_finder_month(value) == ALL_YEAR_VALUE else MONTH_DAY_LIMIT
+
+
+def _finder_period_label(target_year: int, target_month) -> str:
+    month = _normalize_finder_month(target_month)
+    if month == ALL_YEAR_VALUE:
+        return f"All year {int(target_year)}"
+    return f"{MONTH_LABELS[int(month)]} {int(target_year)}"
+
+
+def _clamp_day_value(value, limit: int) -> int:
+    try:
+        numeric = int(round(float(value)))
+    except (TypeError, ValueError):
+        numeric = limit
+    return int(np.clip(numeric, 1, limit))
+
+
+@lru_cache(maxsize=128)
+def finder_period_summary(
+    target_year: int,
+    target_month,
+    temp_min_tenths: int,
+    temp_max_tenths: int,
+) -> pd.DataFrame:
+    target_year = int(target_year)
+    target_month = _normalize_finder_month(target_month)
+    temp_min = temp_min_tenths / 10
+    temp_max = temp_max_tenths / 10
+    day_limit = _finder_day_limit(target_month)
+
+    monthly_rows = []
+    for month in _finder_months(target_month):
+        month_days = calendar.monthrange(target_year, month)[1]
+        month_df = climate_slice(target_year, month)[
+            [
+                "cell_id",
+                "area_name",
+                "lat",
+                "lon",
+                "mean_temp",
+                "hot_days",
+                "dry_days",
+                "tropical_nights",
+                "mosquito_days",
+                "temp_change",
+            ]
+        ].copy()
+        month_df["optimal_days"] = np.where(
+            month_df["mean_temp"].between(temp_min, temp_max),
+            month_days,
+            0,
+        )
+        month_df["weighted_mean_temp"] = month_df["mean_temp"] * month_days
+        month_df["weighted_temp_change"] = month_df["temp_change"] * month_days
+        month_df["period_days"] = month_days
+        monthly_rows.append(month_df)
+
+    if len(monthly_rows) == 1:
+        period = monthly_rows[0].copy()
+    else:
+        total_days = sum(calendar.monthrange(target_year, month)[1] for month in MONTH_LABELS)
+        period = (
+            pd.concat(monthly_rows, ignore_index=True)
+            .groupby(["cell_id", "area_name", "lat", "lon"], as_index=False)
+            .agg(
+                {
+                    "optimal_days": "sum",
+                    "hot_days": "sum",
+                    "dry_days": "sum",
+                    "tropical_nights": "sum",
+                    "mosquito_days": "max",
+                    "weighted_mean_temp": "sum",
+                    "weighted_temp_change": "sum",
+                }
+            )
+        )
+        period["mean_temp"] = period["weighted_mean_temp"] / total_days
+        period["temp_change"] = period["weighted_temp_change"] / total_days
+        period["period_days"] = total_days
+
+    for column in ["optimal_days", "hot_days", "dry_days", "tropical_nights", "mosquito_days"]:
+        period[column] = period[column].clip(lower=0, upper=day_limit)
+    period["period_day_limit"] = day_limit
+    return period[
+        [
+            "cell_id",
+            "area_name",
+            "lat",
+            "lon",
+            "mean_temp",
+            "optimal_days",
+            "hot_days",
+            "dry_days",
+            "tropical_nights",
+            "mosquito_days",
+            "temp_change",
+            "period_days",
+            "period_day_limit",
+        ]
+    ].round(
+        {
+            "mean_temp": 2,
+            "optimal_days": 0,
+            "hot_days": 0,
+            "dry_days": 0,
+            "tropical_nights": 0,
+            "mosquito_days": 0,
+            "temp_change": 2,
+        }
+    )
+
+
+def finder_candidates(period_df: pd.DataFrame, filters: dict[str, Any]) -> pd.DataFrame:
+    day_limit = int(period_df["period_day_limit"].iloc[0]) if not period_df.empty else MONTH_DAY_LIMIT
+    min_optimal_days = _clamp_day_value(filters.get("min_optimal_days"), day_limit)
+    max_mosquito = _clamp_day_value(filters.get("max_mosquito"), day_limit)
+    max_hot_days = _clamp_day_value(filters.get("max_hot_days"), day_limit)
+    max_dry_days = _clamp_day_value(filters.get("max_dry_days"), day_limit)
+    max_tropical_nights = _clamp_day_value(filters.get("max_tropical_nights"), day_limit)
+    max_temp_change = float(filters.get("max_temp_change", DEFAULT_FILTERS["max_temp_change"]))
+
+    mask = (
+        (period_df["optimal_days"] >= min_optimal_days)
+        & (period_df["mosquito_days"] <= max_mosquito)
+        & (period_df["hot_days"] <= max_hot_days)
+        & (period_df["dry_days"] <= max_dry_days)
+        & (period_df["tropical_nights"] <= max_tropical_nights)
+        & (period_df["temp_change"] <= max_temp_change)
+    )
+    return period_df[mask].copy()
+
+
+def optimal_map_figure(
+    period_df: pd.DataFrame,
+    candidates: pd.DataFrame,
+    selected_ids: list[str] | None,
+    title_suffix: str,
+    height: int = 360,
+) -> go.Figure:
+    selected = set(selected_ids or [])
+    day_limit = int(period_df["period_day_limit"].iloc[0]) if not period_df.empty else MONTH_DAY_LIMIT
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scattergeo(
+            lon=period_df["lon"],
+            lat=period_df["lat"],
+            mode="markers",
+            marker={
+                "symbol": "square",
+                "size": 10,
+                "color": "rgba(102,119,130,0.22)",
+                "line": {"width": 0},
+            },
+            customdata=period_df[["cell_id", "area_name", "optimal_days"]],
+            hovertemplate=(
+                "<b>%{customdata[1]}</b><br>"
+                "Cell %{customdata[0]}<br>"
+                "Optimal days: %{customdata[2]:.0f}<extra></extra>"
+            ),
+            name="All cells",
+        )
+    )
+
+    if not candidates.empty:
+        fig.add_trace(
+            go.Scattergeo(
+                lon=candidates["lon"],
+                lat=candidates["lat"],
+                mode="markers",
+                marker={
+                    "symbol": "square",
+                    "size": 14,
+                    "color": candidates["optimal_days"],
+                    "colorscale": OPTIMAL_DAYS_COLORSCALE,
+                    "cmin": 0,
+                    "cmax": day_limit,
+                    "line": {"width": 1.2, "color": "#fff7d6"},
+                    "colorbar": {"title": "Optimal days", "len": 0.58, "thickness": 10},
+                },
+                customdata=candidates[
+                    [
+                        "cell_id",
+                        "area_name",
+                        "optimal_days",
+                        "mean_temp",
+                        "mosquito_days",
+                        "hot_days",
+                        "dry_days",
+                        "tropical_nights",
+                        "temp_change",
+                    ]
+                ],
+                hovertemplate=(
+                    "<b>%{customdata[1]}</b><br>"
+                    "Candidate %{customdata[0]}<br>"
+                    "Optimal days: %{customdata[2]:.0f}<br>"
+                    "Mean temp: %{customdata[3]:.2f} deg C<br>"
+                    "Mosquito days: %{customdata[4]:.0f}<br>"
+                    "Hot days: %{customdata[5]:.0f}<br>"
+                    "Dry days: %{customdata[6]:.0f}<br>"
+                    "Tropical nights: %{customdata[7]:.0f}<br>"
+                    "Temp change: %{customdata[8]:.2f} deg C<extra></extra>"
+                ),
+                name="Matching cells",
+            )
+        )
+
+    if selected:
+        selected_df = period_df[period_df["cell_id"].isin(selected)]
+        fig.add_trace(
+            go.Scattergeo(
+                lon=selected_df["lon"],
+                lat=selected_df["lat"],
+                mode="markers",
+                marker={
+                    "symbol": "circle",
+                    "size": 18,
+                    "color": HIGHLIGHT,
+                    "line": {"width": 2.2, "color": INK},
+                    "opacity": 0.95,
+                },
+                customdata=selected_df[["cell_id", "area_name", "optimal_days"]],
+                hovertemplate=(
+                    "<b>Selected %{customdata[1]}</b><br>"
+                    "Cell %{customdata[0]}<br>"
+                    "Optimal days: %{customdata[2]:.0f}<extra></extra>"
+                ),
+                name="Selected",
+            )
+        )
+
+    fig = geo_layout(fig, height=height)
     if title_suffix:
         fig.add_annotation(
             text=title_suffix,
@@ -1173,7 +1492,7 @@ def parallel_figure(
         "daily_max": "rgba(240,146,74,0.18)",
         "hot": "rgba(222,45,38,0.14)",
         "dry": "rgba(102,119,130,0.17)",
-        "mosquito": "rgba(33,71,92,0.18)",
+        "mosquito": "rgba(129,90,192,0.18)",
     }
     for band, start, end in _parallel_band_ranges():
         fig.add_vrect(
@@ -1443,7 +1762,42 @@ def update_weights(temperature, mosquito, heat, dryness, nights):
 
 
 @app.callback(
+    Output("min-optimal-days-filter", "max"),
+    Output("min-optimal-days-filter", "value"),
+    Output("max-mosquito-filter", "max"),
+    Output("max-mosquito-filter", "value"),
+    Output("max-hot-filter", "max"),
+    Output("max-hot-filter", "value"),
+    Output("max-dry-filter", "max"),
+    Output("max-dry-filter", "value"),
+    Output("max-tropical-filter", "max"),
+    Output("max-tropical-filter", "value"),
+    Input("target-month-filter", "value"),
+    State("min-optimal-days-filter", "value"),
+    State("max-mosquito-filter", "value"),
+    State("max-hot-filter", "value"),
+    State("max-dry-filter", "value"),
+    State("max-tropical-filter", "value"),
+)
+def update_finder_day_slider_bounds(target_month, min_optimal, max_mosquito, max_hot, max_dry, max_tropical):
+    day_limit = _finder_day_limit(target_month)
+    return (
+        day_limit,
+        _clamp_day_value(min_optimal, day_limit),
+        day_limit,
+        _clamp_day_value(max_mosquito, day_limit),
+        day_limit,
+        _clamp_day_value(max_hot, day_limit),
+        day_limit,
+        _clamp_day_value(max_dry, day_limit),
+        day_limit,
+        _clamp_day_value(max_tropical, day_limit),
+    )
+
+
+@app.callback(
     Output("optimal-filter-store", "data"),
+    Output("min-optimal-days-filter-label", "children"),
     Output("max-mosquito-filter-label", "children"),
     Output("max-hot-filter-label", "children"),
     Output("max-dry-filter-label", "children"),
@@ -1452,18 +1806,37 @@ def update_weights(temperature, mosquito, heat, dryness, nights):
     Input("target-year-filter", "value"),
     Input("target-month-filter", "value"),
     Input("temp-range-filter", "value"),
+    Input("min-optimal-days-filter", "value"),
     Input("max-mosquito-filter", "value"),
     Input("max-hot-filter", "value"),
     Input("max-dry-filter", "value"),
     Input("max-tropical-filter", "value"),
     Input("max-change-filter", "value"),
 )
-def update_optimal_filters(target_year, target_month, temp_range, max_mosquito, max_hot, max_dry, max_tropical, max_change):
+def update_optimal_filters(
+    target_year,
+    target_month,
+    temp_range,
+    min_optimal,
+    max_mosquito,
+    max_hot,
+    max_dry,
+    max_tropical,
+    max_change,
+):
+    target_month = _normalize_finder_month(target_month)
+    day_limit = _finder_day_limit(target_month)
+    min_optimal = _clamp_day_value(min_optimal, day_limit)
+    max_mosquito = _clamp_day_value(max_mosquito, day_limit)
+    max_hot = _clamp_day_value(max_hot, day_limit)
+    max_dry = _clamp_day_value(max_dry, day_limit)
+    max_tropical = _clamp_day_value(max_tropical, day_limit)
     filters = {
         "target_year": int(target_year),
-        "target_month": int(target_month),
+        "target_month": target_month,
         "temp_min": float(temp_range[0]),
         "temp_max": float(temp_range[1]),
+        "min_optimal_days": min_optimal,
         "max_mosquito": float(max_mosquito),
         "max_hot_days": float(max_hot),
         "max_dry_days": float(max_dry),
@@ -1472,6 +1845,7 @@ def update_optimal_filters(target_year, target_month, temp_range, max_mosquito, 
     }
     return (
         filters,
+        f"{min_optimal:.0f}",
         f"{max_mosquito:.0f}",
         f"{max_hot:.0f}",
         f"{max_dry:.0f}",
@@ -1584,15 +1958,24 @@ def update_selection(
 def render_dashboard(active_time, weights, filters, selected_ids, scatter_x, scatter_y):
     active_time = active_time or {"year": DEFAULT_YEAR, "month": DEFAULT_MONTH}
     weights = weights or DEFAULT_WEIGHTS
-    filters = filters or DEFAULT_FILTERS
+    filters = {**DEFAULT_FILTERS, **(filters or {})}
     selected_ids = selected_ids or []
 
     df = climate_slice(active_time["year"], active_time["month"])
     time_label = f"{MONTH_LABELS[int(active_time['month'])]} {int(active_time['year'])}"
-    optimal_df = climate_slice(filters["target_year"], filters["target_month"])
-    candidates = optimal_candidates(optimal_df, filters)
-    candidate_ids = set(candidates["cell_id"])
-    candidate_label = f"{len(candidates):,} matching cells | {MONTH_LABELS[int(filters['target_month'])]} {int(filters['target_year'])}"
+    finder_month = _normalize_finder_month(filters["target_month"])
+    finder_df = finder_period_summary(
+        int(filters["target_year"]),
+        finder_month,
+        int(round(float(filters["temp_min"]) * 10)),
+        int(round(float(filters["temp_max"]) * 10)),
+    )
+    candidates = finder_candidates(finder_df, filters)
+    candidate_label = (
+        f"{len(candidates):,} matching cells | "
+        f"{_finder_period_label(int(filters['target_year']), finder_month)} | "
+        f">= {int(filters['min_optimal_days'])} optimal days"
+    )
     ranking_fig, ranking_area_map = ranking_figure(filters, weights, selected_ids)
 
     return (
@@ -1602,14 +1985,12 @@ def render_dashboard(active_time, weights, filters, selected_ids, scatter_x, sca
         map_figure(df, "dryness_risk", selected_ids, compact=True, title_suffix=time_label, marker_opacity=0.42),
         ranking_fig,
         ranking_area_map,
-        map_figure(
-            optimal_df,
-            "mean_temp",
+        optimal_map_figure(
+            finder_df,
+            candidates,
             selected_ids,
-            candidate_ids=candidate_ids,
             title_suffix=candidate_label,
             height=360,
-            auto_range=True,
         ),
         scatter_figure(df, scatter_x, scatter_y, selected_ids, weights),
         selection_summary(df, selected_ids),

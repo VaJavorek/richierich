@@ -152,9 +152,10 @@ DEFAULT_FILTERS = {
     "target_month": 7,
     "temp_min": 24,
     "temp_max": 30,
-    "max_mosquito": 95,
+    "min_optimal_days": 1,
+    "max_mosquito": 31,
     "max_hot_days": 12,
-    "max_dry_days": 34,
+    "max_dry_days": 31,
     "max_tropical_nights": 10,
     "max_temp_change": 2.6,
 }
