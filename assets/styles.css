@@ -405,6 +405,43 @@ h2 {
   display: none;
 }
 
+.slider-track-shell {
+  position: relative;
+}
+
+.slider-track-shell .rc-slider {
+  position: relative;
+  z-index: 2;
+}
+
+.slider-guide-layer {
+  position: absolute;
+  top: 16px;
+  right: 8px;
+  left: 8px;
+  z-index: 1;
+  height: 7px;
+  pointer-events: none;
+}
+
+.slider-guide-range {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  border-radius: 999px;
+  opacity: 0.86;
+  box-shadow: 0 0 0 1px rgba(255, 250, 241, 0.9);
+}
+
+.slider-guide-label {
+  min-height: 13px;
+  margin-top: -2px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1.15;
+}
+
 .finder-controls {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

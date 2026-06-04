@@ -85,6 +85,7 @@ COLOR_HEAT = "#de2d26"
 COLOR_DRYNESS = "#8b9299"
 COLOR_MOSQUITO = "#815ac0"
 COLOR_TROPICAL_NIGHTS = "#d85c9f"
+COLOR_TEMP_CHANGE = "#be7f42"
 
 RANKING_COMPONENTS = [
     {
@@ -145,6 +146,35 @@ OPTIMAL_DAYS_COLORSCALE = [
     [1.0, "#cc4c02"],
 ]
 
+FINDER_GUIDE_ORDER = [
+    "temp_range",
+    "min_optimal_days",
+    "max_mosquito",
+    "max_hot_days",
+    "max_dry_days",
+    "max_tropical_nights",
+    "min_temp_change",
+]
+
+FINDER_GUIDE_SPECS = {
+    "temp_range": {"column": "mean_temp", "minimum": 15, "maximum": 35, "color": COLOR_OPTIMAL_DAYS, "decimals": 1, "unit": "deg C"},
+    "min_optimal_days": {"column": "optimal_days", "minimum": 1, "maximum": "day_limit", "color": COLOR_OPTIMAL_DAYS, "decimals": 0, "unit": ""},
+    "max_mosquito": {"column": "mosquito_days", "minimum": 1, "maximum": "day_limit", "color": COLOR_MOSQUITO, "decimals": 0, "unit": ""},
+    "max_hot_days": {"column": "hot_days", "minimum": 1, "maximum": "day_limit", "color": COLOR_HEAT, "decimals": 0, "unit": ""},
+    "max_dry_days": {"column": "dry_days", "minimum": 1, "maximum": "day_limit", "color": COLOR_DRYNESS, "decimals": 0, "unit": ""},
+    "max_tropical_nights": {"column": "tropical_nights", "minimum": 1, "maximum": "day_limit", "color": COLOR_TROPICAL_NIGHTS, "decimals": 0, "unit": ""},
+    "min_temp_change": {"column": "temp_change", "minimum": 0, "maximum": 5, "color": COLOR_TEMP_CHANGE, "decimals": 1, "unit": "deg C"},
+}
+
+SCATTER_VARIABLE_GUIDES = {
+    "mean_temp": "temp_range",
+    "mosquito_days": "max_mosquito",
+    "hot_days": "max_hot_days",
+    "dry_days": "max_dry_days",
+    "tropical_nights": "max_tropical_nights",
+    "temp_change": "min_temp_change",
+}
+
 
 def finder_month_options() -> list[dict[str, int | str]]:
     return [{"label": "All year", "value": ALL_YEAR_VALUE}] + [
@@ -198,19 +228,28 @@ def slider_value(
     maximum: float,
     step: float = 1,
     show_value_label: bool = True,
+    guide: bool = False,
 ):
     value_class = "slider-value" if show_value_label else "slider-value is-hidden"
+    slider_children = [
+        dcc.Slider(
+            id=id_,
+            min=minimum,
+            max=maximum,
+            step=step,
+            value=value,
+            tooltip={"placement": "bottom", "always_visible": False},
+        )
+    ]
+    guide_label = []
+    if guide:
+        slider_children.append(html.Div(id=f"{id_}-guide", className="slider-guide-layer"))
+        guide_label.append(html.Div(id=f"{id_}-guide-label", className="slider-guide-label"))
     return html.Div(
         [
             html.Div([html.Span(label), html.Strong(id=f"{id_}-label", className=value_class)], className="slider-label"),
-            dcc.Slider(
-                id=id_,
-                min=minimum,
-                max=maximum,
-                step=step,
-                value=value,
-                tooltip={"placement": "bottom", "always_visible": False},
-            ),
+            html.Div(slider_children, className="slider-track-shell"),
+            *guide_label,
         ],
         className="control-row",
     )
@@ -223,6 +262,7 @@ def make_layout():
             dcc.Store(id="active-time-store", data={"year": DEFAULT_YEAR, "month": DEFAULT_MONTH}),
             dcc.Store(id="ranking-weights-store", data=DEFAULT_WEIGHTS),
             dcc.Store(id="optimal-filter-store", data=DEFAULT_FILTERS),
+            dcc.Store(id="finder-guide-store", data={}),
             dcc.Store(id="focused-chart-store", data=None),
             dcc.Store(id="parallel-area-map-store", data={}),
             dcc.Store(id="ranking-area-map-store", data={}),
@@ -465,14 +505,21 @@ def make_layout():
                                             html.Div(
                                                 [
                                                     html.Label("Comfort temperature"),
-                                                    dcc.RangeSlider(
-                                                        id="temp-range-filter",
-                                                        min=15,
-                                                        max=35,
-                                                        step=0.5,
-                                                        value=[DEFAULT_FILTERS["temp_min"], DEFAULT_FILTERS["temp_max"]],
-                                                        tooltip={"placement": "bottom", "always_visible": False},
+                                                    html.Div(
+                                                        [
+                                                            dcc.RangeSlider(
+                                                                id="temp-range-filter",
+                                                                min=15,
+                                                                max=35,
+                                                                step=0.5,
+                                                                value=[DEFAULT_FILTERS["temp_min"], DEFAULT_FILTERS["temp_max"]],
+                                                                tooltip={"placement": "bottom", "always_visible": False},
+                                                            ),
+                                                            html.Div(id="temp-range-filter-guide", className="slider-guide-layer"),
+                                                        ],
+                                                        className="slider-track-shell",
                                                     ),
+                                                    html.Div(id="temp-range-filter-guide-label", className="slider-guide-label"),
                                                 ],
                                                 className="wide-control",
                                             ),
@@ -484,6 +531,7 @@ def make_layout():
                                                 MONTH_DAY_LIMIT,
                                                 1,
                                                 show_value_label=False,
+                                                guide=True,
                                             ),
                                             slider_value(
                                                 "max-mosquito-filter",
@@ -493,6 +541,7 @@ def make_layout():
                                                 MONTH_DAY_LIMIT,
                                                 1,
                                                 show_value_label=False,
+                                                guide=True,
                                             ),
                                             slider_value(
                                                 "max-hot-filter",
@@ -502,6 +551,7 @@ def make_layout():
                                                 MONTH_DAY_LIMIT,
                                                 1,
                                                 show_value_label=False,
+                                                guide=True,
                                             ),
                                             slider_value(
                                                 "max-dry-filter",
@@ -511,6 +561,7 @@ def make_layout():
                                                 MONTH_DAY_LIMIT,
                                                 1,
                                                 show_value_label=False,
+                                                guide=True,
                                             ),
                                             slider_value(
                                                 "max-tropical-filter",
@@ -520,6 +571,7 @@ def make_layout():
                                                 MONTH_DAY_LIMIT,
                                                 1,
                                                 show_value_label=False,
+                                                guide=True,
                                             ),
                                             slider_value(
                                                 "min-change-filter",
@@ -529,6 +581,7 @@ def make_layout():
                                                 5,
                                                 0.1,
                                                 show_value_label=False,
+                                                guide=True,
                                             ),
                                         ],
                                         className="finder-controls",
@@ -1670,7 +1723,7 @@ def scatter_figure(df, x_var: str, y_var: str, selected_ids: list[str] | None, w
     )
     fig.update_layout(
         height=545,
-        dragmode="lasso",
+        dragmode="select",
         margin={"l": 62, "r": 12, "t": 8, "b": 52},
         paper_bgcolor=PAPER_BG,
         plot_bgcolor=PAPER_BG,
@@ -1726,6 +1779,118 @@ def extract_cell_ids(payload: dict[str, Any] | None, area_map: dict[str, list[st
         elif isinstance(candidate, str) and candidate in area_map:
             ids.extend(area_map[candidate])
     return list(dict.fromkeys(ids))
+
+
+def _merge_axis_range(ranges: dict[str, list[float]], guide_key: str, values) -> None:
+    if guide_key not in FINDER_GUIDE_SPECS or not isinstance(values, (list, tuple)) or len(values) != 2:
+        return
+    try:
+        low = float(values[0])
+        high = float(values[1])
+    except (TypeError, ValueError):
+        return
+    if not np.isfinite(low) or not np.isfinite(high):
+        return
+    low, high = sorted((low, high))
+    if guide_key in ranges:
+        existing_low, existing_high = ranges[guide_key]
+        ranges[guide_key] = [min(existing_low, low), max(existing_high, high)]
+    else:
+        ranges[guide_key] = [low, high]
+
+
+def scatter_axis_guide_ranges(payload: dict[str, Any] | None, x_var: str, y_var: str) -> dict[str, list[float]]:
+    selected_range = (payload or {}).get("range") or {}
+    ranges: dict[str, list[float]] = {}
+    for axis_key, variable in (("x", x_var), ("y", y_var)):
+        guide_key = SCATTER_VARIABLE_GUIDES.get(variable)
+        if guide_key:
+            _merge_axis_range(ranges, guide_key, selected_range.get(axis_key))
+    return ranges
+
+
+def _empty_guide_outputs() -> list[Any]:
+    outputs: list[Any] = []
+    for _key in FINDER_GUIDE_ORDER:
+        outputs.extend([None, ""])
+    return outputs
+
+
+def _guide_limit(spec: dict[str, Any], day_limit: int, bound: str) -> float:
+    value = spec[bound]
+    return float(day_limit if value == "day_limit" else value)
+
+
+def _clamp_guide_range(values: list[float] | tuple[float, float], minimum: float, maximum: float) -> tuple[float, float] | None:
+    if maximum <= minimum or not isinstance(values, (list, tuple)) or len(values) != 2:
+        return None
+    try:
+        low = float(values[0])
+        high = float(values[1])
+    except (TypeError, ValueError):
+        return None
+    if not np.isfinite(low) or not np.isfinite(high):
+        return None
+    low, high = sorted((low, high))
+    low = float(np.clip(low, minimum, maximum))
+    high = float(np.clip(high, minimum, maximum))
+    if high < low:
+        low, high = high, low
+    return low, high
+
+
+def _guide_overlay(range_values: tuple[float, float], minimum: float, maximum: float, color: str) -> html.Div:
+    low, high = range_values
+    span = maximum - minimum
+    width = ((high - low) / span) * 100
+    width = max(width, 1.4)
+    left = ((low - minimum) / span) * 100
+    left = min(max(left, 0), 100 - width)
+    return html.Div(
+        className="slider-guide-range",
+        style={
+            "left": f"{left:.2f}%",
+            "width": f"{width:.2f}%",
+            "backgroundColor": color,
+        },
+    )
+
+
+def _format_guide_label(range_values: tuple[float, float], decimals: int, unit: str) -> str:
+    low, high = range_values
+    if decimals == 0:
+        text = f"{low:.0f}-{high:.0f}"
+    else:
+        text = f"{low:.{decimals}f}-{high:.{decimals}f}"
+    return f"Selected: {text} {unit}".strip()
+
+
+def finder_guide_ranges(guide_state: dict[str, Any] | None, filters: dict[str, Any] | None) -> tuple[dict[str, list[float]], int]:
+    filters = {**DEFAULT_FILTERS, **(filters or {})}
+    target_month = _normalize_finder_month(filters["target_month"])
+    day_limit = _finder_day_limit(target_month)
+    guide_state = guide_state or {}
+    ranges: dict[str, list[float]] = {}
+
+    selected_ids = set(guide_state.get("selected_ids") or [])
+    if selected_ids:
+        period_df = finder_period_summary(
+            int(filters["target_year"]),
+            target_month,
+            int(round(float(filters["temp_min"]) * 10)),
+            int(round(float(filters["temp_max"]) * 10)),
+        )
+        selected_df = period_df[period_df["cell_id"].isin(selected_ids)]
+        if not selected_df.empty:
+            for guide_key, spec in FINDER_GUIDE_SPECS.items():
+                values = selected_df[spec["column"]].dropna()
+                if not values.empty:
+                    ranges[guide_key] = [float(values.min()), float(values.max())]
+
+    for guide_key, values in (guide_state.get("axis_ranges") or {}).items():
+        if guide_key in FINDER_GUIDE_SPECS:
+            ranges[guide_key] = values
+    return ranges, day_limit
 
 
 app = Dash(
@@ -2017,6 +2182,104 @@ def update_selection(
             return ids
         return ids[:1]
     return current_selection or []
+
+
+@app.callback(
+    Output("finder-guide-store", "data"),
+    Input("clear-selection-button", "n_clicks"),
+    Input("parallel-chart", "clickData"),
+    Input("parallel-chart", "selectedData"),
+    Input("scatter-chart", "clickData"),
+    Input("scatter-chart", "selectedData"),
+    State("parallel-area-map-store", "data"),
+    State("scatter-x", "value"),
+    State("scatter-y", "value"),
+    State("finder-guide-store", "data"),
+    prevent_initial_call=True,
+)
+def update_finder_guide(
+    _clear_clicks,
+    parallel_click,
+    parallel_selected,
+    scatter_click,
+    scatter_selected,
+    parallel_area_map,
+    scatter_x,
+    scatter_y,
+    current_guide,
+):
+    prop_id = ctx.triggered[0]["prop_id"] if ctx.triggered else ""
+    current_guide = current_guide or {}
+    if prop_id == "clear-selection-button.n_clicks":
+        return {}
+
+    if prop_id.startswith("parallel-chart."):
+        payload = {
+            "parallel-chart.clickData": parallel_click,
+            "parallel-chart.selectedData": parallel_selected,
+        }.get(prop_id)
+        selected_ids = extract_cell_ids(payload, parallel_area_map)
+        if selected_ids:
+            return {"source": "parallel", "selected_ids": selected_ids, "axis_ranges": {}}
+        if prop_id.endswith(".selectedData") and current_guide.get("source") == "parallel":
+            return {}
+        return current_guide
+
+    if prop_id.startswith("scatter-chart."):
+        payload = {
+            "scatter-chart.clickData": scatter_click,
+            "scatter-chart.selectedData": scatter_selected,
+        }.get(prop_id)
+        selected_ids = extract_cell_ids(payload)
+        axis_ranges = scatter_axis_guide_ranges(payload, scatter_x, scatter_y)
+        if selected_ids or axis_ranges:
+            return {"source": "scatter", "selected_ids": selected_ids, "axis_ranges": axis_ranges}
+        if prop_id.endswith(".selectedData") and current_guide.get("source") == "scatter":
+            return {}
+        return current_guide
+
+    return current_guide
+
+
+@app.callback(
+    Output("temp-range-filter-guide", "children"),
+    Output("temp-range-filter-guide-label", "children"),
+    Output("min-optimal-days-filter-guide", "children"),
+    Output("min-optimal-days-filter-guide-label", "children"),
+    Output("max-mosquito-filter-guide", "children"),
+    Output("max-mosquito-filter-guide-label", "children"),
+    Output("max-hot-filter-guide", "children"),
+    Output("max-hot-filter-guide-label", "children"),
+    Output("max-dry-filter-guide", "children"),
+    Output("max-dry-filter-guide-label", "children"),
+    Output("max-tropical-filter-guide", "children"),
+    Output("max-tropical-filter-guide-label", "children"),
+    Output("min-change-filter-guide", "children"),
+    Output("min-change-filter-guide-label", "children"),
+    Input("finder-guide-store", "data"),
+    Input("optimal-filter-store", "data"),
+)
+def render_finder_guides(guide_state, filters):
+    if not guide_state or not guide_state.get("source"):
+        return _empty_guide_outputs()
+
+    ranges, day_limit = finder_guide_ranges(guide_state, filters)
+    outputs: list[Any] = []
+    for guide_key in FINDER_GUIDE_ORDER:
+        spec = FINDER_GUIDE_SPECS[guide_key]
+        minimum = _guide_limit(spec, day_limit, "minimum")
+        maximum = _guide_limit(spec, day_limit, "maximum")
+        guide_range = _clamp_guide_range(ranges.get(guide_key), minimum, maximum)
+        if guide_range is None:
+            outputs.extend([None, ""])
+            continue
+        outputs.extend(
+            [
+                _guide_overlay(guide_range, minimum, maximum, spec["color"]),
+                _format_guide_label(guide_range, int(spec["decimals"]), spec["unit"]),
+            ]
+        )
+    return outputs
 
 
 @app.callback(
